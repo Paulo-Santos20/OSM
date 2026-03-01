@@ -1,11 +1,16 @@
+// src/config/firebase.js
 import { initializeApp } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'; // Importação adicionada
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from 'firebase/firestore'; 
 import { 
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
   signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword,
+  createUserWithEmailAndPassword, 
   signOut 
 } from 'firebase/auth';
 
@@ -19,25 +24,36 @@ const firebaseConfig = {
 };
 
 export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
-const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
 
-export const db = app ? getFirestore(app) : null;
-export const auth = app ? getAuth(app) : null;
-export const googleProvider = new GoogleAuthProvider();
+let app = null;
+let db = null;
+let auth = null;
 
-// ==========================================
-// ATIVAÇÃO DO MODO OFFLINE (IndexedDB)
-// ==========================================
-if (db) {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      // Múltiplas abas abertas, persistência disponível apenas na primeira.
-      console.warn('Persistência offline desativada: múltiplas abas abertas.');
-    } else if (err.code === 'unimplemented') {
-      // O navegador atual não suporta persistência (ex: modo incógnito extremo)
-      console.warn('O navegador não suporta persistência offline.');
-    }
+if (isFirebaseConfigured) {
+  app = initializeApp(firebaseConfig);
+  
+  // ==========================================
+  // ATIVAÇÃO DO MODO OFFLINE MODERNO (IndexedDB)
+  // Substitui o getFirestore() e o enableIndexedDbPersistence()
+  // ==========================================
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager() // Permite cache offline em múltiplas abas simultâneas
+    })
   });
+
+  auth = getAuth(app);
+} else {
+  console.warn("Firebase não está configurado. Verifique as variáveis VITE_ no arquivo .env");
 }
 
-export { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut };
+export const googleProvider = new GoogleAuthProvider();
+
+export { 
+  db, 
+  auth, 
+  signInWithPopup, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut 
+};
