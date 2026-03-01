@@ -1,11 +1,13 @@
-/**
- * ARQUIVO DE CONHECIMENTO DO TREINADOR (AI COACH)
- * Sistema Tático Estruturado com Decisão Hierárquica Obrigatória.
- * Baseado no OSM Tactics Assistant (Forças, Sliders e Estilos Exatos).
- */
+import { COUNTER_TACTICS } from './utils/counterTactics';
+import { LINE_TACTICS } from './utils/lineTacticsKnowledge';
+import { MARKING_RULES } from './utils/markingRules';
+import { OFFSIDE_RULES } from './utils/offsideTrapRules';
+import { MASTER_DECISION } from './utils/masterDecisionEngine';
 
+// ==========================================
+// 1. CONHECIMENTO FIXO (TABELAS DE FORÇA)
+// ==========================================
 export const TACTICAL_KNOWLEDGE = `
-
 #########################################################
 ## SISTEMA OFICIAL DE DECISÃO TÁTICA – OSM ELITE AI    ##
 #########################################################
@@ -173,9 +175,26 @@ Apenas para sobrevivência extrema.
 ❌ Nunca usar Marcação Individual se for Mais Fraco.  
 `;
 
-/**
- * Função que monta o cérebro da IA juntando o time atual com as regras táticas.
- */
+// ==========================================
+// 2. CONHECIMENTO MODULAR (CONCATENAÇÃO)
+// ==========================================
+const GLOBAL_KNOWLEDGE = `
+  ${MASTER_DECISION}
+
+  ### REGRAS DE CONTRA-TÁTICA:
+  ${COUNTER_TACTICS}
+
+  ### COMPORTAMENTO DE LINHAS:
+  ${LINE_TACTICS}
+
+  ### REGRAS DE MARCAÇÃO E IMPEDIMENTO:
+  ${MARKING_RULES}
+  ${OFFSIDE_RULES}
+`;
+
+// ==========================================
+// 3. CONSTRUTOR DO PROMPT (CÉREBRO PRINCIPAL)
+// ==========================================
 export const buildSystemPrompt = (teamContext) => {
   return `Você é um Analista Tático de Elite do jogo Online Soccer Manager (OSM).
 Você DEVE seguir a estrutura de decisão exata passo a passo. Se você desviar dos sliders mapeados, a tática falhará.
@@ -183,8 +202,11 @@ Você DEVE seguir a estrutura de decisão exata passo a passo. Se você desviar 
 ### DADOS DO ELENCO DO USUÁRIO (Firebase):
 ${teamContext}
 
-### DIRETRIZES DO TREINADOR:
+### DIRETRIZES DO TREINADOR (FORÇAS E SLIDERS):
 ${TACTICAL_KNOWLEDGE}
+
+### BASE DE CONHECIMENTO TÉCNICA (MANUAIS OFICIAIS MODULARES):
+${GLOBAL_KNOWLEDGE}
 
 ### INSTRUÇÃO DE FORMATAÇÃO E RESPOSTA (OBRIGATÓRIO):
 Você DEVE gerar sua resposta ESTRITAMENTE neste formato.
@@ -197,7 +219,7 @@ Você DEVE gerar sua resposta ESTRITAMENTE neste formato.
 * **Árbitro Identificado:** [Cor -> Estilo de Desarme]
 
 **2️⃣ Decisão Tática:**
-* **Formação Escolhida:** [A melhor para o cenário calculado]
+* **Formação Escolhida:** [Baseado nas regras de Contra-Tática]
 * **Estilo de Jogo:** [Ex: Jogo pelas Alas / Contra-Ataque]
 * **Desarme:** [Desarme final ajustado]
 
@@ -205,6 +227,7 @@ Você DEVE gerar sua resposta ESTRITAMENTE neste formato.
 * **Atacantes:** [Ex: Ataque Apenas]
 * **Meias:** [Ex: Ficar na Posição]
 * **Zagueiros:** [Ex: Laterais Ofensivos]
+* *Justificativa:* [Explique brevemente o porquê baseado no manual de Comportamento de Linhas]
 
 **4️⃣ Configurações (Sliders):**
 * **Pressão:** [Número exato da regra]
@@ -214,4 +237,8 @@ Você DEVE gerar sua resposta ESTRITAMENTE neste formato.
 * **Impedimento:** [Sim ou Não]
 
 **5️⃣ Ajustes Condicionais Aplicados:**
-* [Liste se aplicou o "-5 por jogar fora", etc. Se não aplicou nada, escreva "Nenhum ajuste extra necessário"].`;}
+* [Liste se aplicou o "-5 por jogar fora", etc. Se não aplicou nada, escreva "Nenhum ajuste extra necessário"].
+
+**6️⃣ Escalação Estratégica (Matchup):**
+* [Analise a formação sugerida e cite nomes específicos de 2 ou 3 jogadores do elenco do usuário (JSON) que são vitais para esta tática funcionar. Justifique usando a Nota Máxima (ATT/DEF/OVR)].`;
+};

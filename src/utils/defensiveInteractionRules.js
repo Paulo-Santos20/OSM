@@ -1,0 +1,7 @@
+export const DEFENSIVE_INTERACTION_RULES = {
+  OFFSIDE_WITH_ZONAL: "Avoid",
+  OFFSIDE_WITH_MAN: "Allowed only with high pressure",
+  OFFSIDE_WITH_DEEP_DEFENSE: "Forbidden",
+  MAN_MARKING_WHEN_OUTNUMBERED: "Forbidden",
+  ZONAL_WITH_ULTRA_HIGH_PRESSURE: "Unstable"
+};
