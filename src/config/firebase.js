@@ -1,5 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  signOut 
+} from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -12,4 +20,10 @@ const firebaseConfig = {
 
 export const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+
 export const db = app ? getFirestore(app) : null;
+export const auth = app ? getAuth(app) : null;
+export const googleProvider = new GoogleAuthProvider();
+
+// Funções Auxiliares de Auth
+export { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut };
