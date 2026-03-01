@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'; // Importação adicionada
 import { 
   getAuth, 
   GoogleAuthProvider, 
@@ -25,5 +25,19 @@ export const db = app ? getFirestore(app) : null;
 export const auth = app ? getAuth(app) : null;
 export const googleProvider = new GoogleAuthProvider();
 
-// Funções Auxiliares de Auth
+// ==========================================
+// ATIVAÇÃO DO MODO OFFLINE (IndexedDB)
+// ==========================================
+if (db) {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      // Múltiplas abas abertas, persistência disponível apenas na primeira.
+      console.warn('Persistência offline desativada: múltiplas abas abertas.');
+    } else if (err.code === 'unimplemented') {
+      // O navegador atual não suporta persistência (ex: modo incógnito extremo)
+      console.warn('O navegador não suporta persistência offline.');
+    }
+  });
+}
+
 export { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut };
