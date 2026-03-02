@@ -3,7 +3,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { 
   Camera, Loader2, Save, AlertTriangle, UserPlus, Zap, Trash2, Plus, 
-  Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, Search, TrendingUp, Dumbbell, Flame
+  Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, 
+  Search, TrendingUp, Dumbbell, Flame, RefreshCcw, ShieldAlert
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../config/firebase';
@@ -218,7 +219,7 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
       const maxOvr = Math.max(Number(foundInScan.att) || 0, Number(foundInScan.def) || 0, Number(foundInScan.ovr) || 0);
       return { 
         ...p, att: foundInScan.att, def: foundInScan.def, ovr: maxOvr, pos: foundInScan.pos || p.pos,
-        age: foundInScan.age || p.age || 25, energy: p.energy !== undefined ? p.energy : 100, unavailable: p.unavailable || false
+        age: foundInScan.age || p.age || 25, energy: foundInScan.energy !== undefined ? foundInScan.energy : (p.energy !== undefined ? p.energy : 100), unavailable: foundInScan.unavailable || p.unavailable || false
       };
     });
 
@@ -228,7 +229,7 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
         const maxOvr = Math.max(Number(scannedPlayer.att) || 0, Number(scannedPlayer.def) || 0, Number(scannedPlayer.ovr) || 0);
         updatedRoster.push({
           ...scannedPlayer, ovr: maxOvr, age: scannedPlayer.age || 25,
-          id: `player_${Date.now()}_${idx}`, isBench: true, pitchPos: null, energy: 100, unavailable: false
+          id: `player_${Date.now()}_${idx}`, isBench: true, pitchPos: null, energy: scannedPlayer.energy !== undefined ? scannedPlayer.energy : 100, unavailable: scannedPlayer.unavailable || false
         });
       }
     });
@@ -243,7 +244,7 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
   const extractWithBackupAI = async (base64Data, originalPrompt) => {
     const groqApiKey = import.meta.env.VITE_GROQ_API_KEY; 
     if (!groqApiKey) throw new Error("Chave VITE_GROQ_API_KEY não configurada.");
-    const aggressivePrompt = `${originalPrompt}\n\nIMPORTANTE: Extraia TODOS os jogadores. Inclua a idade ("age").`;
+    const aggressivePrompt = `${originalPrompt}\n\nIMPORTANTE: Extraia TODOS os jogadores. Inclua a idade ("age") e obrigatoriamente a energia ("energy") estimando pela cor/tamanho da barra 'F'.`;
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -263,12 +264,19 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
   const processImageFile = async (file) => {
     if (!file) return;
     setIsExtractionLoading(true);
-    const loadingToast = toast.loading("Analisando imagem...");
+    const loadingToast = toast.loading("Analisando imagem e energia...");
 
     try {
       const base64Data = await compressImageToBase64(file);
+      // PROMPT ATUALIZADO: Agora pede explicitamente para ler a barra F e identificar a energia pela cor
       const prompt = `Você é um extrator de dados estrito. Retorne ABSOLUTAMENTE APENAS UM JSON VÁLIDO.
-Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"att":95,"def":37,"ovr":95}]}`;
+REGRA DA ENERGIA (FADIGA): Observe a barra superior 'F' (Fitness) de CADA jogador.
+- Se a barra 'F' for Verde = "energy": 100
+- Se a barra 'F' for Amarela = "energy": 75
+- Se a barra 'F' for Laranja = "energy": 50
+- Se a barra 'F' for Vermelha = "energy": 25
+REGRA DE SUSPENSÃO: Cartão amarelo NÃO suspende ("unavailable": false). Apenas cruz médica ou cartão vermelho ("unavailable": true).
+Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"att":95,"def":37,"ovr":95,"energy":75,"unavailable":false}]}`;
 
       let rawText = "";
 
@@ -412,7 +420,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
   const pitchSlots = FORMATIONS_MAP[currentFormationStr] || FORMATIONS_MAP["4-3-3B"];
 
   // ==========================================
-  // ALGORITMOS NATIVOS (ESPECIALISTAS, SCOUT E TREINO)
+  // ALGORITMOS NATIVOS (ESPECIALISTAS, SCOUT, TREINO E ROTAÇÃO)
   // ==========================================
   const getSpecialists = useMemo(() => {
     if (starters.length === 0) return { captain: null, penalties: null, freeKicks: null, corners: null };
@@ -430,7 +438,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
     return { captain, penalties, freeKicks, corners };
   }, [starters]);
 
-  const getScoutRecommendation = useMemo(() => {
+  const scoutRecommendation = useMemo(() => {
     if (starters.length === 0) return null;
     const weakestLink = [...starters].sort((a, b) => {
       if (a.ovr !== b.ovr) return a.ovr - b.ovr;
@@ -454,17 +462,15 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
     return { weakest: weakestLink, scoutPos, scoutStyle, quality: qualityStr, age: "Jovem (< 25 anos)" };
   }, [starters, teamData.teamOvr]);
 
-  // NOVO: ASSISTENTE DE TREINO DIÁRIO
   const getTrainingFocus = useMemo(() => {
     const allPlayers = safePlayers;
     if (allPlayers.length === 0) return { GK: [], DEF: [], MID: [], ATT: [] };
 
-    // Pontuação: Mais Jovem = Mais pontos. Titular = Bônus gigante.
     const scorePlayer = (p) => {
-      let score = (35 - (p.age || 25)) * 10; // 18 anos = 170 pts | 30 anos = 50 pts
-      if (!p.isBench) score += 100; // Prioriza quem joga titular
-      if (p.age >= 29) score -= 200; // Penalidade pesada para velhos (evoluem muito pouco no OSM)
-      return score + (p.ovr * 0.01); // Desempate mínimo pelo OVR
+      let score = (35 - (p.age || 25)) * 10;
+      if (!p.isBench) score += 100; 
+      if (p.age >= 29) score -= 200; 
+      return score + (p.ovr * 0.01); 
     };
 
     const sorted = [...allPlayers].sort((a, b) => scorePlayer(b) - scorePlayer(a));
@@ -476,6 +482,60 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
       GK: sorted.filter(p => getMacroSector(p.pos) === 'GK').slice(0, 2),
     };
   }, [safePlayers]);
+
+  const depthAnalysis = useMemo(() => {
+    if (!pitchSlots || safePlayers.length === 0) return null;
+
+    const required = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
+    pitchSlots.forEach(slot => {
+      const macro = getMacroSector(slot.label);
+      if(required[macro] !== undefined) required[macro]++;
+    });
+
+    const ideal = {
+      GK: 2, 
+      DEF: required.DEF + Math.ceil(required.DEF / 2),
+      MID: required.MID + Math.ceil(required.MID / 2),
+      ATT: required.ATT + Math.ceil(required.ATT / 2)
+    };
+
+    const current = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
+    safePlayers.forEach(p => {
+      if (!p.unavailable) {
+        const macro = getMacroSector(p.pos);
+        if(current[macro] !== undefined) current[macro]++;
+      }
+    });
+
+    const stats = Object.keys(required).map(sector => {
+      const needed = ideal[sector];
+      const has = current[sector];
+      const diff = has - needed;
+      let status = 'good';
+      if (diff < 0) status = diff <= -2 ? 'critical' : 'warning';
+      return { sector, needed, has, diff, status };
+    });
+
+    const criticalSectors = stats.filter(s => s.status === 'critical');
+    const warningSectors = stats.filter(s => s.status === 'warning');
+    
+    let message = "Elenco perfeito! Você tem peças suficientes para rotacionar o time sem perder rendimento.";
+    let boxColor = "border-emerald-900/50 bg-emerald-950/20";
+    let iconColor = "text-emerald-400";
+
+    if (criticalSectors.length > 0) {
+      boxColor = "border-red-900/50 bg-red-950/20";
+      iconColor = "text-red-400";
+      const s = criticalSectors[0];
+      message = `Risco de Colapso Físico: Você tem apenas ${s.has} opções para o setor ${s.sector}. Para jogar no ${currentFormationStr} com rotação saudável, vá ao mercado buscar +${Math.abs(s.diff)} jogadores imediatamente!`;
+    } else if (warningSectors.length > 0) {
+      boxColor = "border-yellow-900/50 bg-yellow-950/20";
+      iconColor = "text-yellow-400";
+      message = `Atenção na Rotação: Faltam opções de banco no setor ${warningSectors[0].sector}. Se houver uma lesão, você ficará sem fôlego na Copa.`;
+    }
+
+    return { stats, message, boxColor, iconColor };
+  }, [safePlayers, currentFormationStr, pitchSlots]);
 
   return (
     <div className="p-4 pb-10 max-w-[1400px] mx-auto w-full animate-fade-in outline-none relative" tabIndex={0} onPaste={handlePasteAnywhere}>
@@ -637,13 +697,34 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
           </div>
         </div>
 
-        {/* COLUNA DIREITA: GESTÃO (ESPECIALISTAS, TREINO, SCOUT) */}
+        {/* COLUNA DIREITA: GESTÃO (ESPECIALISTAS, TREINO, SCOUT E ROTAÇÃO) */}
         <div className="xl:w-[50%] flex flex-col gap-6">
           
-          {/* BLOCO SUPERIOR: TREINO E SCOUT */}
+          {/* PLANEJADOR DE ROTAÇÃO E PROFUNDIDADE */}
+          {depthAnalysis && (
+            <div className={`bg-slate-800 rounded-2xl shadow-xl border p-5 animate-fade-in ${depthAnalysis.boxColor}`}>
+              <h4 className={`font-bold mb-3 flex items-center gap-2 text-sm ${depthAnalysis.iconColor}`}>
+                <RefreshCcw size={18}/> Planejador de Rotação (Tática Atual)
+              </h4>
+              <div className="flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex-1 w-full grid grid-cols-4 gap-2">
+                  {depthAnalysis.stats.map(stat => (
+                    <div key={stat.sector} className={`p-2 rounded-lg border flex flex-col items-center justify-center bg-slate-900/50 ${stat.status === 'critical' ? 'border-red-500/50' : stat.status === 'warning' ? 'border-yellow-500/50' : 'border-emerald-500/50'}`}>
+                      <span className={`text-[10px] font-bold uppercase ${stat.status === 'critical' ? 'text-red-400' : stat.status === 'warning' ? 'text-yellow-400' : 'text-emerald-400'}`}>{stat.sector}</span>
+                      <span className="text-sm font-black text-slate-200">{stat.has} / <span className="text-xs text-slate-500">{stat.needed}</span></span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex-1 text-sm bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 w-full shadow-inner">
+                  <p className="text-slate-300 leading-relaxed font-medium">{depthAnalysis.message}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
-            {/* CARD 1: ASSISTENTE DE TREINO DIÁRIO */}
+            {/* CARD: ASSISTENTE DE TREINO DIÁRIO */}
             <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4">
               <h4 className="font-bold text-orange-400 mb-3 flex items-center gap-2 text-sm">
                 <Dumbbell size={18}/> Foco de Treino Diário
@@ -677,7 +758,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
               </div>
             </div>
 
-            {/* CARD 2: SCOUT E ESPECIALISTAS */}
+            {/* CARD: SCOUT E ESPECIALISTAS */}
             <div className="flex flex-col gap-4">
               <div className="bg-gradient-to-br from-blue-900/40 to-slate-800 rounded-2xl shadow-xl border border-blue-800/50 p-4 flex flex-col items-center text-center justify-center flex-1">
                 <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mb-2 shadow-lg shadow-blue-900/50">
@@ -734,23 +815,17 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
               {safePlayers.map((player, idx) => (
                 <div key={player.id || idx} className={`border rounded-xl p-1.5 grid grid-cols-12 gap-1 items-center shadow-sm transition-colors ${player.unavailable ? 'bg-red-950/20 border-red-900/50' : (player.energy < 75 ? 'bg-yellow-950/20 border-yellow-900/50' : 'bg-slate-900 border-slate-700')}`}>
                   <input type="text" value={player.name} onChange={(e) => updatePlayerStat(idx, 'name', e.target.value)} className="col-span-3 bg-transparent text-xs font-semibold text-slate-200 outline-none w-full truncate px-1" />
-                  
                   <input type="text" value={player.pos || ''} onChange={(e) => updatePlayerStat(idx, 'pos', e.target.value)} className="col-span-1 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-medium text-blue-400 outline-none w-full uppercase" maxLength={3} />
-                  
                   <input type="number" value={player.ovr} onChange={(e) => updatePlayerStat(idx, 'ovr', e.target.value)} className="col-span-2 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-bold text-green-400 outline-none w-full" />
-                  
                   <input type="number" value={player.age || 25} onChange={(e) => updatePlayerStat(idx, 'age', e.target.value)} className="col-span-1 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-medium text-purple-300 outline-none w-full px-0" title="Idade" />
-
                   <input type="number" value={player.energy ?? 100} onChange={(e) => updatePlayerStat(idx, 'energy', e.target.value)} className={`col-span-2 bg-slate-950 border rounded text-center text-[11px] py-1.5 font-bold outline-none w-full ${player.energy < 75 ? 'text-yellow-500 border-yellow-700/50' : 'text-slate-300 border-slate-800'}`} min="0" max="100" />
                   
                   <button onClick={() => updatePlayerStat(idx, 'unavailable', !player.unavailable)} className={`col-span-1 flex justify-center py-1.5 rounded transition-colors border ${player.unavailable ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-red-400'}`}>
                     <Ban size={12} />
                   </button>
-
                   <button onClick={() => handleOpenMarket(player)} className="col-span-1 flex justify-center py-1.5 rounded transition-colors border bg-slate-950 border-slate-800 text-emerald-500 hover:bg-emerald-900/30 hover:border-emerald-500/50" title="Revenda no Mercado">
                     <DollarSign size={14} />
                   </button>
-
                   <button onClick={() => handleRemovePlayer(player.id)} className="col-span-1 flex justify-center text-slate-500 hover:text-red-400 transition-colors">
                     <Trash2 size={14} />
                   </button>
