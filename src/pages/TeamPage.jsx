@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { 
   Camera, Loader2, Save, AlertTriangle, UserPlus, Zap, Trash2, Plus, 
-  Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, Search, TrendingUp 
+  Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, Search, TrendingUp, Dumbbell, Flame
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../config/firebase';
@@ -412,7 +412,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
   const pitchSlots = FORMATIONS_MAP[currentFormationStr] || FORMATIONS_MAP["4-3-3B"];
 
   // ==========================================
-  // ALGORITMOS NATIVOS (ESPECIALISTAS E SCOUT)
+  // ALGORITMOS NATIVOS (ESPECIALISTAS, SCOUT E TREINO)
   // ==========================================
   const getSpecialists = useMemo(() => {
     if (starters.length === 0) return { captain: null, penalties: null, freeKicks: null, corners: null };
@@ -432,43 +432,50 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
 
   const getScoutRecommendation = useMemo(() => {
     if (starters.length === 0) return null;
-    
-    // O elo mais fraco é o de menor OVR. Se empatar, pega o mais velho.
     const weakestLink = [...starters].sort((a, b) => {
       if (a.ovr !== b.ovr) return a.ovr - b.ovr;
       return (b.age || 25) - (a.age || 25);
     })[0];
 
-    let scoutPos = "";
-    let scoutStyle = "";
+    let scoutPos = ""; let scoutStyle = "";
     const pPos = weakestLink.pos.toUpperCase();
     const macro = getMacroSector(pPos);
 
-    if (macro === 'GK') {
-      scoutPos = "Goleiro"; scoutStyle = "Geral";
-    } else if (macro === 'DEF') {
-      scoutPos = "Defensor";
-      scoutStyle = ['LB', 'RB', 'LWB', 'RWB', 'LAT'].includes(pPos) ? "Ofensivo (Laterais)" : "Defensivo (Zagueiros)";
-    } else if (macro === 'MID') {
-      scoutPos = "Meio-campista";
-      if (['CAM', 'MEI'].includes(pPos)) scoutStyle = "Ofensivo (Attacking)";
-      else if (['CDM', 'VOL'].includes(pPos)) scoutStyle = "Defensivo (Defensive)";
-      else scoutStyle = "Armador (Box-to-box / Balanced)";
-    } else {
-      scoutPos = "Atacante";
-      scoutStyle = ['LW', 'RW', 'PE', 'PD'].includes(pPos) ? "Atacante Pelas Alas (Winger)" : "Ponta de Lança (Poacher)";
-    }
+    if (macro === 'GK') { scoutPos = "Goleiro"; scoutStyle = "Geral"; } 
+    else if (macro === 'DEF') { scoutPos = "Defensor"; scoutStyle = ['LB', 'RB', 'LWB', 'RWB', 'LAT'].includes(pPos) ? "Ofensivo (Laterais)" : "Defensivo (Zagueiros)"; } 
+    else if (macro === 'MID') { scoutPos = "Meio-campista"; if (['CAM', 'MEI'].includes(pPos)) scoutStyle = "Ofensivo (Attacking)"; else if (['CDM', 'VOL'].includes(pPos)) scoutStyle = "Defensivo (Defensive)"; else scoutStyle = "Armador (Box-to-box / Balanced)"; } 
+    else { scoutPos = "Atacante"; scoutStyle = ['LW', 'RW', 'PE', 'PD'].includes(pPos) ? "Atacante Pelas Alas (Winger)" : "Ponta de Lança (Poacher)"; }
 
     const tOvr = teamData.teamOvr || 80;
     const targetOvr = tOvr + 2;
     let qualityStr = "85+";
-    if (targetOvr < 60) qualityStr = "50-59";
-    else if (targetOvr < 70) qualityStr = "60-69";
-    else if (targetOvr < 80) qualityStr = "70-79";
-    else if (targetOvr < 85) qualityStr = "80-84";
+    if (targetOvr < 60) qualityStr = "50-59"; else if (targetOvr < 70) qualityStr = "60-69"; else if (targetOvr < 80) qualityStr = "70-79"; else if (targetOvr < 85) qualityStr = "80-84";
 
     return { weakest: weakestLink, scoutPos, scoutStyle, quality: qualityStr, age: "Jovem (< 25 anos)" };
   }, [starters, teamData.teamOvr]);
+
+  // NOVO: ASSISTENTE DE TREINO DIÁRIO
+  const getTrainingFocus = useMemo(() => {
+    const allPlayers = safePlayers;
+    if (allPlayers.length === 0) return { GK: [], DEF: [], MID: [], ATT: [] };
+
+    // Pontuação: Mais Jovem = Mais pontos. Titular = Bônus gigante.
+    const scorePlayer = (p) => {
+      let score = (35 - (p.age || 25)) * 10; // 18 anos = 170 pts | 30 anos = 50 pts
+      if (!p.isBench) score += 100; // Prioriza quem joga titular
+      if (p.age >= 29) score -= 200; // Penalidade pesada para velhos (evoluem muito pouco no OSM)
+      return score + (p.ovr * 0.01); // Desempate mínimo pelo OVR
+    };
+
+    const sorted = [...allPlayers].sort((a, b) => scorePlayer(b) - scorePlayer(a));
+
+    return {
+      ATT: sorted.filter(p => getMacroSector(p.pos) === 'ATT').slice(0, 2),
+      MID: sorted.filter(p => getMacroSector(p.pos) === 'MID').slice(0, 2),
+      DEF: sorted.filter(p => getMacroSector(p.pos) === 'DEF').slice(0, 2),
+      GK: sorted.filter(p => getMacroSector(p.pos) === 'GK').slice(0, 2),
+    };
+  }, [safePlayers]);
 
   return (
     <div className="p-4 pb-10 max-w-[1400px] mx-auto w-full animate-fade-in outline-none relative" tabIndex={0} onPaste={handlePasteAnywhere}>
@@ -508,51 +515,27 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-md relative">
             <button onClick={() => setScoutModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">✕</button>
-            
             <div className="flex items-center gap-3 mb-6">
-              <div className="bg-blue-600 p-3 rounded-xl shadow-lg shadow-blue-900/30">
-                <Search size={24} className="text-white" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-100">Diretor de Olheiros</h3>
-                <span className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Análise Automática do Elenco</span>
-              </div>
+              <div className="bg-blue-600 p-3 rounded-xl shadow-lg shadow-blue-900/30"><Search size={24} className="text-white" /></div>
+              <div><h3 className="text-xl font-bold text-slate-100">Diretor de Olheiros</h3><span className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Análise Automática do Elenco</span></div>
             </div>
-
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-4">
               <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2 flex items-center gap-1"><AlertTriangle size={14} className="text-yellow-500"/> Elo mais fraco identificado</p>
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center font-bold text-slate-300">
-                  {scoutRecommendation.weakest.ovr}
-                </div>
-                <div>
-                  <p className="font-bold text-slate-200">{scoutRecommendation.weakest.name}</p>
-                  <p className="text-xs text-slate-500">Idade: {scoutRecommendation.weakest.age} anos • Pos: {scoutRecommendation.weakest.pos}</p>
-                </div>
+                <div className="w-10 h-10 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center font-bold text-slate-300">{scoutRecommendation.weakest.ovr}</div>
+                <div><p className="font-bold text-slate-200">{scoutRecommendation.weakest.name}</p><p className="text-xs text-slate-500">Idade: {scoutRecommendation.weakest.age} anos • Pos: {scoutRecommendation.weakest.pos}</p></div>
               </div>
             </div>
-
             <div className="bg-blue-950/20 border border-blue-900/50 rounded-xl p-4">
               <p className="text-xs text-blue-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-1"><TrendingUp size={14}/> Parâmetros Sugeridos para o Jogo</p>
               <ul className="space-y-2 text-sm text-slate-300">
-                <li className="flex justify-between border-b border-blue-900/30 pb-1">
-                  <span className="text-slate-500">Posição:</span> <strong className="text-slate-100">{scoutRecommendation.scoutPos}</strong>
-                </li>
-                <li className="flex justify-between border-b border-blue-900/30 pb-1">
-                  <span className="text-slate-500">Estilo:</span> <strong className="text-slate-100">{scoutRecommendation.scoutStyle}</strong>
-                </li>
-                <li className="flex justify-between border-b border-blue-900/30 pb-1">
-                  <span className="text-slate-500">Qualidade:</span> <strong className="text-slate-100">{scoutRecommendation.quality}</strong>
-                </li>
-                <li className="flex justify-between border-b border-blue-900/30 pb-1">
-                  <span className="text-slate-500">Idade:</span> <strong className="text-slate-100">{scoutRecommendation.age}</strong>
-                </li>
-                <li className="flex justify-between">
-                  <span className="text-slate-500">Nacionalidade:</span> <strong className="text-slate-100">Qualquer</strong>
-                </li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Posição:</span> <strong className="text-slate-100">{scoutRecommendation.scoutPos}</strong></li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Estilo:</span> <strong className="text-slate-100">{scoutRecommendation.scoutStyle}</strong></li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Qualidade:</span> <strong className="text-slate-100">{scoutRecommendation.quality}</strong></li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Idade:</span> <strong className="text-slate-100">{scoutRecommendation.age}</strong></li>
+                <li className="flex justify-between"><span className="text-slate-500">Nacionalidade:</span> <strong className="text-slate-100">Qualquer</strong></li>
               </ul>
             </div>
-            
             <button onClick={() => setScoutModalOpen(false)} className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-colors">Entendido</button>
           </div>
         </div>
@@ -562,14 +545,9 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
         <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-xl p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-pulse z-40 sticky top-0">
           <div className="flex items-center gap-3 text-yellow-400">
             <AlertTriangle size={24} />
-            <div className="text-sm">
-              <p className="font-bold">Alterações não salvas</p>
-              <p className="text-yellow-500/80">Você alterou a escalação. Salve para não perder.</p>
-            </div>
+            <div className="text-sm"><p className="font-bold">Alterações não salvas</p><p className="text-yellow-500/80">Você alterou a escalação. Salve para não perder.</p></div>
           </div>
-          <button onClick={handleSaveToFirebase} className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-md">
-            <Save size={18} /> Salvar no Banco
-          </button>
+          <button onClick={handleSaveToFirebase} className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2.5 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors shadow-md"><Save size={18} /> Salvar no Banco</button>
         </div>
       )}
 
@@ -646,7 +624,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                         {hasProblem && <AlertTriangle size={14} className={player.unavailable ? "text-red-500" : "text-yellow-500"} />}
                       </div>
                       <span className={`text-[11px] ${isSelected ? 'text-slate-800' : 'text-slate-400'}`}>
-                        Pos: {player.pos || 'N/A'} | Energia: {player.energy ?? 100}%
+                        Pos: {player.pos || 'N/A'} | Idade: {player.age || 25} | En: {player.energy ?? 100}%
                       </span>
                     </div>
                     <div className={`w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center font-bold text-sm shadow-sm border ${isSelected ? 'bg-slate-900 text-yellow-400 border-slate-800' : (hasProblem ? 'bg-red-900/30 text-red-400 border-red-800/50' : 'bg-green-900/30 text-green-400 border-green-800/50')}`}>
@@ -659,63 +637,85 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
           </div>
         </div>
 
-        {/* COLUNA DIREITA: ESPECIALISTAS, SCOUT E GESTÃO */}
+        {/* COLUNA DIREITA: GESTÃO (ESPECIALISTAS, TREINO, SCOUT) */}
         <div className="xl:w-[50%] flex flex-col gap-6">
           
+          {/* BLOCO SUPERIOR: TREINO E SCOUT */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            
+            {/* CARD 1: ASSISTENTE DE TREINO DIÁRIO */}
             <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4">
-               <h4 className="font-bold text-slate-200 mb-4 flex items-center gap-2 text-sm">
-                  <Target className="text-purple-400" size={18}/> Bolas Paradas
-               </h4>
-               <div className="space-y-2">
-                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Award size={14}/> Capitão</span>
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.captain?.name || "N/A"}</span>
+              <h4 className="font-bold text-orange-400 mb-3 flex items-center gap-2 text-sm">
+                <Dumbbell size={18}/> Foco de Treino Diário
+              </h4>
+              <div className="space-y-2">
+                {[
+                  { title: "Atacantes", data: getTrainingFocus.ATT },
+                  { title: "Meias", data: getTrainingFocus.MID },
+                  { title: "Defensores", data: getTrainingFocus.DEF },
+                  { title: "Goleiros", data: getTrainingFocus.GK }
+                ].map((posGroup, idx) => (
+                  <div key={idx} className="bg-slate-900 p-2.5 rounded-lg border border-slate-700 flex flex-col">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase mb-1">{posGroup.title}</span>
+                    <div className="flex flex-col gap-1">
+                      {posGroup.data[0] ? (
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-200 truncate flex items-center gap-1.5"><Flame size={12} className="text-orange-500"/> {posGroup.data[0].name}</span>
+                          <span className="text-[10px] text-orange-400 font-bold">{posGroup.data[0].age} anos</span>
+                        </div>
+                      ) : <span className="text-xs text-slate-600 italic">Sem jogadores</span>}
+                      
+                      {posGroup.data[1] && (
+                        <div className="flex justify-between items-center opacity-60">
+                          <span className="text-[10px] font-medium text-slate-300 truncate">2ª Opção: {posGroup.data[1].name}</span>
+                          <span className="text-[10px] text-slate-400">{posGroup.data[1].age} anos</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Target size={14}/> Pênaltis</span>
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.penalties?.name || "N/A"}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Flag size={14}/> Faltas</span>
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.freeKicks?.name || "N/A"}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><CornerUpLeft size={14}/> Escanteios</span>
-                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.corners?.name || "N/A"}</span>
-                  </div>
-               </div>
-            </div>
-
-            {/* CARD NOVO DO OLHEIRO (SCOUT) */}
-            <div className="bg-gradient-to-br from-blue-900/40 to-slate-800 rounded-2xl shadow-xl border border-blue-800/50 p-4 flex flex-col justify-center">
-              <div className="flex flex-col items-center text-center">
-                <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center mb-3 shadow-lg shadow-blue-900/50">
-                  <Search className="text-white" size={20} />
-                </div>
-                <h4 className="font-bold text-slate-100 mb-1">Diretor de Scout</h4>
-                <p className="text-xs text-blue-200/70 mb-4 px-2">Descubra matematicamente o elo mais fraco do seu time titular.</p>
-                <button 
-                  onClick={() => setScoutModalOpen(true)}
-                  disabled={starters.length === 0}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-50"
-                >
-                  Onde preciso melhorar?
-                </button>
+                ))}
               </div>
             </div>
+
+            {/* CARD 2: SCOUT E ESPECIALISTAS */}
+            <div className="flex flex-col gap-4">
+              <div className="bg-gradient-to-br from-blue-900/40 to-slate-800 rounded-2xl shadow-xl border border-blue-800/50 p-4 flex flex-col items-center text-center justify-center flex-1">
+                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mb-2 shadow-lg shadow-blue-900/50">
+                  <Search className="text-white" size={18} />
+                </div>
+                <h4 className="font-bold text-slate-100 text-sm mb-1">Diretor de Scout</h4>
+                <p className="text-[11px] text-blue-200/70 mb-3 px-2">Descubra matematicamente o elo mais fraco titular.</p>
+                <button onClick={() => setScoutModalOpen(true)} disabled={starters.length === 0} className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-50">
+                  Ver Relatório
+                </button>
+              </div>
+
+              <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 flex-1">
+                <h4 className="font-bold text-slate-200 mb-2 flex items-center gap-2 text-sm">
+                  <Target className="text-purple-400" size={16}/> Bolas Paradas
+                </h4>
+                <div className="space-y-1.5">
+                    <div className="flex justify-between items-center bg-slate-900 px-2 py-1.5 rounded text-xs border border-slate-700"><span className="text-slate-500 font-bold uppercase">Capitão</span><span className="font-bold text-slate-200 truncate max-w-[80px]">{getSpecialists.captain?.name || "N/A"}</span></div>
+                    <div className="flex justify-between items-center bg-slate-900 px-2 py-1.5 rounded text-xs border border-slate-700"><span className="text-slate-500 font-bold uppercase">Pênalti</span><span className="font-bold text-slate-200 truncate max-w-[80px]">{getSpecialists.penalties?.name || "N/A"}</span></div>
+                    <div className="flex justify-between items-center bg-slate-900 px-2 py-1.5 rounded text-xs border border-slate-700"><span className="text-slate-500 font-bold uppercase">Faltas</span><span className="font-bold text-slate-200 truncate max-w-[80px]">{getSpecialists.freeKicks?.name || "N/A"}</span></div>
+                    <div className="flex justify-between items-center bg-slate-900 px-2 py-1.5 rounded text-xs border border-slate-700"><span className="text-slate-500 font-bold uppercase">Canto</span><span className="font-bold text-slate-200 truncate max-w-[80px]">{getSpecialists.corners?.name || "N/A"}</span></div>
+                </div>
+              </div>
+            </div>
+
           </div>
 
-          <div className="flex justify-between items-center">
-            <h4 className="font-bold text-slate-300">Banco de Dados de Jogadores</h4>
+          <div className="flex justify-between items-center mt-2">
+            <h4 className="font-bold text-slate-300">Banco de Dados do Elenco</h4>
             <button onClick={handleAddPlayer} className="bg-emerald-600 hover:bg-emerald-500 text-white p-2 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors shadow-md">
-              <Plus size={14} /> Criar Manual
+              <Plus size={14} /> Novo Jogador
             </button>
           </div>
           
-          <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 overflow-hidden flex flex-col h-[600px]">
+          {/* TABELA DE JOGADORES */}
+          <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 overflow-hidden flex flex-col h-[500px]">
             <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-700 mb-4">
-              <span className="text-slate-400 text-sm font-bold">OVR Titulares (Força):</span>
+              <span className="text-slate-400 text-sm font-bold">OVR Titulares:</span>
               <span className="text-green-400 text-2xl font-black">{teamData.teamOvr || 0}</span>
             </div>
 
