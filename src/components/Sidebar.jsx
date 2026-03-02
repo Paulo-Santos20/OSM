@@ -1,5 +1,6 @@
+// src/components/Sidebar.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX } from 'lucide-react';
+import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX, Target } from 'lucide-react'; // Import do ícone Target
 import { collection, getDocs, writeBatch, doc, deleteDoc } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 
@@ -30,14 +31,11 @@ export default function Sidebar({
   // ==========================================
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
-      // Previne o prompt padrão do navegador de aparecer imediatamente
       e.preventDefault();
-      // Guarda o evento para acionarmos no botão
       setDeferredPrompt(e);
     };
     
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
@@ -46,7 +44,7 @@ export default function Sidebar({
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') {
-        setDeferredPrompt(null); // Esconde o botão após instalar
+        setDeferredPrompt(null);
         toast.success("Instalação iniciada!");
       }
     } else {
@@ -111,7 +109,6 @@ export default function Sidebar({
   const handleDeleteTeam = async (id, name) => {
     const confirmDelete = window.confirm(`Tem certeza que deseja apagar a prancheta do time "${name}" permanentemente?`);
     if (confirmDelete) {
-      // 1. Remove da lista local (o App.jsx vai sincronizar essa nova lista no Firebase automaticamente)
       const updatedTeams = teams.filter(t => t.id !== id);
       setTeams(updatedTeams);
       
@@ -119,7 +116,6 @@ export default function Sidebar({
         setActiveTeamId(updatedTeams.length > 0 ? updatedTeams[0].id : null);
       }
 
-      // 2. Apaga o documento do time do banco de dados para economizar espaço
       if (user && db) {
         try {
           await deleteDoc(doc(db, "users", user.uid, "teams", id));
@@ -218,7 +214,6 @@ export default function Sidebar({
         {/* NAVEGAÇÃO E INSTALAÇÃO */}
         <div className="p-3 border-t border-slate-800 space-y-2 bg-slate-900/90 backdrop-blur-sm">
           
-          {/* O botão só aparece se o navegador permitir a instalação do PWA */}
           {deferredPrompt && (
             <button onClick={handleInstallPWA} className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl text-sm transition-colors bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg mb-4">
               <Download size={18} /> Instalar no Celular
@@ -230,6 +225,9 @@ export default function Sidebar({
           </button>
           <button onClick={() => changeTab('team')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'team' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
             <Users size={18} className={activeTab === 'team' ? 'text-blue-400' : ''} /> Gestão do Elenco
+          </button>
+          <button onClick={() => changeTab('rivals')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'rivals' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
+            <Target size={18} className={activeTab === 'rivals' ? 'text-red-400' : ''} /> Dossiê de Rivais
           </button>
         </div>
       </aside>

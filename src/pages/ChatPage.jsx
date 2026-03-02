@@ -1,6 +1,7 @@
+// src/pages/ChatPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, addDoc, query, orderBy, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
-import { Camera, Send, Loader2, Bot, X, AlertTriangle, Trash2 } from 'lucide-react';
+import { collection, addDoc, query, orderBy, onSnapshot, getDocs, writeBatch, setDoc, doc, getDoc } from 'firebase/firestore';
+import { Camera, Send, Loader2, Bot, X, AlertTriangle, Trash2, Target } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ReactMarkdown from 'react-markdown';
 import { db } from '../config/firebase';
@@ -15,6 +16,9 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   
+  // Dossiês carregados para contextualizar a IA
+  const [dossiers, setDossiers] = useState([]);
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -22,28 +26,34 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isChatLoading]);
 
-  // Carrega as mensagens com Memória (Cofre Seguro)
+  // Listener das Mensagens
   useEffect(() => {
     if (!db || !activeTeamId || !user) return;
     setMessages([]);
-    
     const q = query(collection(db, "users", user.uid, `chats_${activeTeamId}`), orderBy("timestamp", "asc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMessages(msgs);
     });
-    
     return () => unsubscribe();
   }, [activeTeamId, user]);
+
+  // Listener dos Dossiês (Para passar para a IA)
+  useEffect(() => {
+    if (!db || !user || !activeTeamId) return;
+    const q = query(collection(db, "users", user.uid, `rivals_${activeTeamId}`));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setDossiers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, [user, activeTeamId]);
 
   const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     const pastedImages = [];
     for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        pastedImages.push(items[i].getAsFile());
-      }
+      if (items[i].type.indexOf('image') !== -1) pastedImages.push(items[i].getAsFile());
     }
     if (pastedImages.length > 0) {
       setSelectedImages(prev => [...prev, ...pastedImages]);
@@ -58,14 +68,12 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     e.target.value = null; 
   };
 
-  const removeImage = (indexToRemove) => {
-    setSelectedImages(prev => prev.filter((_, index) => index !== indexToRemove));
-  };
+  const removeImage = (indexToRemove) => setSelectedImages(prev => prev.filter((_, index) => index !== indexToRemove));
 
   const clearChatHistory = async () => {
     if (!window.confirm(`Deseja apagar todo o histórico de conversas do ${activeTeamName}?`)) return;
     setIsCleaning(true);
-    const cleaningToast = toast.loading("Limpando histórico...");
+    const cleaningToast = toast.loading("Limpando preleção...");
     try {
       const chatRef = collection(db, "users", user.uid, `chats_${activeTeamId}`);
       const snapshot = await getDocs(chatRef);
@@ -80,9 +88,6 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     }
   };
 
-  // ==========================================
-  // FUNÇÃO DE BACKUP: GROQ / LLAMA 3.2 VISION
-  // ==========================================
   const chatWithBackupAI = async (chatHistory, currentPrompt, base64ImagesArray, systemPrompt) => {
     const groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
     if (!groqApiKey) throw new Error("Chave do Groq não configurada.");
@@ -91,7 +96,7 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
       { role: "system", content: systemPrompt },
       ...chatHistory.map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
-        content: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) enviada(s) anteriormente]` : "")
+        content: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) enviada(s)]` : "")
       }))
     ];
 
@@ -100,7 +105,6 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     
     if (base64ImagesArray && base64ImagesArray.length > 0) {
       base64ImagesArray.forEach(b64 => {
-        // Groq/Llama Vision aceita base64 via URL scheme
         currentContent.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
       });
     }
@@ -109,30 +113,20 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${groqApiKey}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Authorization": `Bearer ${groqApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama-3.2-11b-vision-preview", // Modelo suportado para Visão no Groq
+        model: "llama-3.2-11b-vision-preview", 
         messages: mappedMessages,
         temperature: 0.1,
         max_tokens: 4096
       })
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => null);
-      throw new Error(`Groq API falhou: ${errorData?.error?.message || response.statusText}`);
-    }
-
+    if (!response.ok) throw new Error(`Groq API falhou.`);
     const data = await response.json();
     return data.choices[0].message.content;
   };
 
-  // ==========================================
-  // HANDLER PRINCIPAL DE MENSAGENS
-  // ==========================================
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if ((!inputText.trim() && selectedImages.length === 0) || !db || !activeTeamId || !user) return;
@@ -144,23 +138,19 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     try {
       await addDoc(collection(db, "users", user.uid, `chats_${activeTeamId}`), userMessage);
 
+      // FORMATA OS DOSSIÊS PARA O PROMPT
+      const formattedDossiers = dossiers.map(d => `Rival: ${d.managerName} | Tática Preferida: ${d.formation} | Notas: ${d.notes || 'Sem notas'}`).join('\n');
       const currentTeamContext = JSON.stringify(teamData);
-      const systemPrompt = buildSystemPrompt(currentTeamContext);
+      const systemPrompt = buildSystemPrompt(currentTeamContext, formattedDossiers);
 
       let base64Images = [];
       let promptToSend = userMessageText;
 
-      // Auto-Prompt Inteligente se houver imagens
       if (selectedImages.length > 0) {
         base64Images = await Promise.all(selectedImages.map(img => compressImageToBase64(img)));
-        
-        if (!promptToSend) {
-          promptToSend = `Analise estas imagens do meu próximo jogo. O OVR do meu time é exato ${teamData.teamOvr || 0}.
-Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me forneça a estratégia completa seguindo rigorosamente a estrutura do seu manual.`;
-        }
+        if (!promptToSend) promptToSend = `Analise estas imagens. Meu OVR é ${teamData.teamOvr}. Leia a tática e defina minha escalação baseada no manual. Gere a extração de Scout Oculta no final.`;
       }
 
-      // Preparando a Memória
       const chatHistory = messages.map(msg => ({
         text: msg.text,
         sender: msg.sender,
@@ -172,16 +162,13 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
       try {
         if (!ai) throw new Error("Gemini não configurado");
 
-        // Formatando histórico para o Gemini
         const geminiHistory = chatHistory.map(msg => ({
           role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) do adversário analisada(s)]` : "") }]
+          parts: [{ text: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagens enviadas]` : "") }]
         }));
 
         const currentParts = [];
-        base64Images.forEach(b64 => {
-          currentParts.push({ inlineData: { data: b64, mimeType: 'image/jpeg' } });
-        });
+        base64Images.forEach(b64 => currentParts.push({ inlineData: { data: b64, mimeType: 'image/jpeg' } }));
         currentParts.push({ text: promptToSend });
 
         const finalContents = [ ...geminiHistory, { role: 'user', parts: currentParts } ];
@@ -194,29 +181,52 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
 
         aiResponseText = response.text;
       } catch (geminiError) {
-        console.warn("⚠️ Gemini ocupado. Acionando auxiliar Groq...", geminiError);
         const loadingId = toast.loading("Acionando assistente de backup (Groq)...");
-        
-        // Chamada para o Groq Fallback
         aiResponseText = await chatWithBackupAI(chatHistory, promptToSend, base64Images, systemPrompt);
-        
         toast.success("Análise concluída pelo Backup!", { id: loadingId });
       }
 
-      // Salvando a resposta
+      // ==========================================
+      // INTERCEPTAÇÃO E SALVAMENTO DO SCOUT (RIVAL)
+      // ==========================================
+      const jsonRegex = /```json\n([\s\S]*?)\n```/;
+      const match = aiResponseText.match(jsonRegex);
+      
+      if (match) {
+        try {
+          const extractedData = JSON.parse(match[1]);
+          if (extractedData.isRivalData && extractedData.managerName !== 'Desconhecido') {
+            const rivalId = extractedData.managerName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const rivalRef = doc(db, "users", user.uid, `rivals_${activeTeamId}`, rivalId);
+            
+            // Puxa as notas antigas (se houver) para não sobrescrever o que o usuário digitou
+            const existingRival = await getDoc(rivalRef);
+            const existingNotes = existingRival.exists() ? existingRival.data().notes : "";
+
+            await setDoc(rivalRef, {
+              ...extractedData,
+              notes: existingNotes, 
+              lastScouted: new Date().toISOString()
+            }, { merge: true });
+
+            toast.success(`Scout salvo! Rival: ${extractedData.managerName}`, { icon: '🕵️‍♂️' });
+          }
+        } catch (e) {
+          console.error("Falha ao fazer parse do JSON do Rival", e);
+        }
+        
+        // Remove o bloco JSON da string final para o usuário não ver o código
+        aiResponseText = aiResponseText.replace(match[0], '').trim();
+      }
+
       await addDoc(collection(db, "users", user.uid, `chats_${activeTeamId}`), { 
-        text: aiResponseText, 
-        sender: 'ai', 
-        timestamp: new Date() 
+        text: aiResponseText, sender: 'ai', timestamp: new Date() 
       });
 
     } catch (error) {
-      console.error(error);
       toast.error("Falha ao analisar a tática.");
       await addDoc(collection(db, "users", user.uid, `chats_${activeTeamId}`), { 
-        text: "Desculpe, professor. Ocorreu um erro ao processar os dados táticos. Pode enviar novamente?", 
-        sender: 'ai', 
-        timestamp: new Date() 
+        text: "Ocorreu um erro ao processar. Tente novamente.", sender: 'ai', timestamp: new Date() 
       });
     } finally {
       setInputText('');
@@ -228,15 +238,26 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
   return (
     <div className="flex-1 flex flex-col h-full w-full relative min-h-0 bg-slate-950">
       
-      <div className="flex items-center justify-between px-6 py-2 border-b border-slate-800/50 bg-slate-950/50 backdrop-blur-sm z-10">
-        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Sala de Preleção</span>
-        {messages.length > 0 && (
-          <button onClick={clearChatHistory} disabled={isCleaning} className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-500/10">
-            {isCleaning ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Limpar
-          </button>
-        )}
+      {/* HEADER DO CHAT */}
+      <div className="flex items-center justify-between px-6 py-2 border-b border-slate-800/50 bg-slate-950/50 backdrop-blur-sm z-30">
+        <div className="flex items-center gap-4">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Sala de Preleção</span>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {/* O botão agora serve apenas como atalho visual para lembrar que a funcionalidade existe */}
+          <span className="text-[10px] font-black text-red-500/80 bg-red-950/20 px-3 py-1.5 rounded-lg border border-red-900/30 uppercase tracking-wider hidden sm:flex items-center gap-1.5">
+            <Target size={12} /> Auto-Scout Ativo
+          </span>
+          {messages.length > 0 && (
+            <button onClick={clearChatHistory} disabled={isCleaning} className="flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-500/10">
+              {isCleaning ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Limpar
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* ÁREA DE MENSAGENS */}
       <div className="flex-1 overflow-y-auto p-4 pb-56 space-y-6 scrollbar-thin scrollbar-thumb-slate-800">
         {messages.length === 0 && (
           <div className="text-center mt-20 animate-fade-in">
@@ -245,7 +266,7 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
             </div>
             <h3 className="text-xl font-bold text-slate-200">Pronto para treinar o {activeTeamName}</h3>
             <p className="text-slate-400 mt-2 text-sm max-w-sm mx-auto">
-              Cole os prints (Ctrl+V) do confronto (com OVR e árbitro) e da formação do adversário aqui. Cruzarei a força dele com a do nosso time para desenhar a tática perfeita.
+              Cole os prints da formação do adversário. A IA criará a tática e salvará os dados dele no <strong>Dossiê de Rivais</strong> automaticamente.
             </p>
           </div>
         )}
@@ -294,13 +315,14 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
               <Bot size={18} className="text-blue-400" />
             </div>
             <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
-              <Loader2 className="animate-spin" size={16} /> Analisando prancheta e definindo tática...
+              <Loader2 className="animate-spin" size={16} /> Espionando adversário e formulando tática...
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
+      {/* INPUT INFERIOR */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent pt-12 pb-6 px-4 pointer-events-none z-20">
         <div className="max-w-3xl mx-auto w-full pointer-events-auto flex flex-col items-start">
           
@@ -322,7 +344,7 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
           {(!teamData || teamData.teamOvr === 0) && (
             <div className="mb-3 w-full bg-yellow-900/30 border border-yellow-700/50 text-yellow-400 text-[13px] px-4 py-3 rounded-xl flex items-center gap-3 animate-fade-in shadow-md">
               <AlertTriangle size={20} className="flex-shrink-0" />
-              <span>Para eu gerar a tática perfeita, vá primeiro na aba <strong>Escalação</strong> e defina o seu time!</span>
+              <span>Para a IA funcionar, vá na aba <strong>Escalação do Time</strong> e defina o seu time!</span>
             </div>
           )}
 
@@ -336,7 +358,7 @@ Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me 
               onChange={(e) => setInputText(e.target.value)} 
               onPaste={handlePaste} 
               onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }} 
-              placeholder={selectedImages.length > 0 ? "Pressione Enter para analisar as imagens..." : "Cole as fotos (Ctrl+V) ou digite sua dúvida..."} 
+              placeholder={selectedImages.length > 0 ? "Pressione Enter para analisar e extrair os dados do Rival..." : "Cole as fotos (Ctrl+V) ou digite sua dúvida..."} 
               className="flex-1 bg-transparent border-none px-2 py-3 text-[15px] max-h-32 resize-none outline-none text-slate-100 placeholder:text-slate-500 custom-scrollbar" 
               rows={1} 
             />

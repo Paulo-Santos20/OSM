@@ -1,7 +1,6 @@
 /**
  * 🧠 Master Decision Engine - OSM AI Coach (Versão para LLM)
  * Princípio: Arquitetura Escalável e Código Limpo
- * Este arquivo dita as regras do motor tático em formato de texto para a IA ler e executar.
  */
 
 export const MASTER_DECISION = `
@@ -23,6 +22,12 @@ Você opera como um motor de decisão de 11 passos. Siga rigorosamente esta lóg
 - Inimigo 4-4-2B -> Se Favorito: 4-3-3B | Se Equilíbrio: 4-4-2A | Se Azarão: 4-2-3-1
 - Inimigo 5-3-2  -> Se Favorito: 3-4-3B | Se Equilíbrio: 4-4-2A | Se Azarão: 5-3-2
 - Outras/Padrão  -> Se Favorito: 4-3-3B | Se Equilíbrio: 4-4-2B | Se Azarão: 5-3-2
+
+### PROTOCOLO DE FADIGA E SUSPENSÃO (REGRA DE FERRO 🚨):
+Ao ler o JSON do elenco do usuário, observe os campos "energy" e "unavailable" de cada jogador.
+1. Se "unavailable": true (Suspenso ou Lesionado) -> É ESTAVELMENTE PROIBIDO escalar este jogador.
+2. Se "energy" < 75 (Fadiga Crítica) -> É PROIBIDO escalar este jogador como titular, para evitar lesões.
+3. Ação Obrigatória: Se o melhor jogador (Maior OVR) estiver indisponível ou cansado, você DEVE escalar o reserva imediato daquela posição e EXPLICAR o motivo na sua resposta.
 
 ### LÓGICA DE MARCAÇÃO:
 Compare os seus Zagueiros (o primeiro número da sua formação) com os Atacantes do Inimigo (o último número da formação dele).

@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { Toaster, toast } from "react-hot-toast";
 import { Menu, AlertTriangle, LogOut, Loader2 } from "lucide-react";
@@ -11,12 +12,13 @@ import Sidebar from "./components/Sidebar";
 import ChatPage from "./pages/ChatPage";
 import TeamPage from "./pages/TeamPage";
 import LoginPage from "./pages/LoginPage";
+import RivalsPage from "./pages/RivalsPage"; // IMPORTAÇÃO DA NOVA PÁGINA
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("chat");
+  const [activeTab, setActiveTab] = useState("chat"); // Pode ser "chat", "team" ou "rivals"
 
   // A lista de times agora começa vazia e será preenchida pelo Firebase
   const [teams, setTeams] = useState([]);
@@ -46,9 +48,8 @@ export default function App() {
   }, []);
 
   // ==========================================
-  // 2. SINCRONIZAÇÃO DA SIDEBAR COM O FIREBASE (O Pulo do Gato)
+  // 2. SINCRONIZAÇÃO DA SIDEBAR COM O FIREBASE
   // ==========================================
-  // Busca a lista de times do usuário quando ele faz login
   useEffect(() => {
     if (!user || !db) {
       setTeams([]);
@@ -63,9 +64,8 @@ export default function App() {
         if (docSnap.exists() && docSnap.data().teams?.length > 0) {
           const loadedTeams = docSnap.data().teams;
           setTeams(loadedTeams);
-          setActiveTeamId(loadedTeams[0].id); // Seleciona o primeiro time por padrão
+          setActiveTeamId(loadedTeams[0].id);
         } else {
-          // Conta nova: Cria o time padrão de boas-vindas direto na nuvem
           const defaultTeam = [{ id: `time-inicial-${Date.now()}`, name: "Meu Primeiro Time" }];
           setTeams(defaultTeam);
           setActiveTeamId(defaultTeam[0].id);
@@ -96,7 +96,7 @@ export default function App() {
   }, [teams, user]);
 
   // ==========================================
-  // 3. BUSCA DOS DADOS DO TIME ATIVO (Escalação)
+  // 3. BUSCA DOS DADOS DO TIME ATIVO
   // ==========================================
   useEffect(() => {
     if (!db || !activeTeamId || !user) return;
@@ -125,7 +125,6 @@ export default function App() {
   const activeTeamName = teams.find((t) => t.id === activeTeamId)?.name || "Carregando...";
 
   const handleLogout = async () => {
-    // Limpa os dados visuais antes de deslogar para evitar vazamento visual
     setTeams([]);
     setActiveTeamId(null);
     await signOut(auth);
@@ -153,7 +152,6 @@ export default function App() {
 
   if (!user) return <LoginPage />;
 
-  // Impede a renderização principal enquanto o Firebase não carrega os times da conta
   if (teams.length === 0 || !activeTeamId) return (
     <div className="h-screen bg-slate-950 flex items-center justify-center">
       <Loader2 className="animate-spin text-blue-500" size={40} />
@@ -194,7 +192,8 @@ export default function App() {
             <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               {activeTeamName} 
               <span className="bg-slate-800 text-blue-400 text-[10px] px-2 py-1 rounded-md uppercase tracking-wider hidden sm:inline-block">
-                {activeTab === "chat" ? "Táticas" : "Elenco"}
+                {/* LÓGICA DO TÍTULO DA ABA ATUALIZADA AQUI */}
+                {activeTab === "chat" ? "Táticas" : activeTab === "team" ? "Elenco" : "Dossiê"}
               </span>
             </h2>
           </div>
@@ -205,14 +204,17 @@ export default function App() {
           </button>
         </header>
 
-        {activeTab === "chat" ? (
+        {/* LÓGICA DE ROTEAMENTO DAS ABAS */}
+        {activeTab === "chat" && (
           <ChatPage
             activeTeamId={activeTeamId}
             activeTeamName={activeTeamName}
             teamData={teamData}
             user={user}
           />
-        ) : (
+        )}
+        
+        {activeTab === "team" && (
           <div className="flex-1 overflow-y-auto">
             <TeamPage
               activeTeamId={activeTeamId}
@@ -223,6 +225,17 @@ export default function App() {
             />
           </div>
         )}
+
+        {activeTab === "rivals" && (
+          <div className="flex-1 overflow-y-auto">
+            <RivalsPage
+              activeTeamId={activeTeamId}
+              activeTeamName={activeTeamName}
+              user={user}
+            />
+          </div>
+        )}
+
       </main>
     </div>
   );
