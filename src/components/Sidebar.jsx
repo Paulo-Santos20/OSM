@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX } from 'lucide-react';
-import { collection, getDocs, writeBatch } from 'firebase/firestore'; // Importações para limpar o chat
+import { collection, getDocs, writeBatch, doc, deleteDoc } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 
 export default function Sidebar({ 
@@ -14,6 +14,7 @@ export default function Sidebar({
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', teamId: null });
   const [inputValue, setInputValue] = useState('');
 
+  // Fecha o menu de 3 pontinhos ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -24,12 +25,19 @@ export default function Sidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // ==========================================
+  // LÓGICA DE INSTALAÇÃO PWA
+  // ==========================================
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
+      // Previne o prompt padrão do navegador de aparecer imediatamente
       e.preventDefault();
+      // Guarda o evento para acionarmos no botão
       setDeferredPrompt(e);
     };
+    
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
@@ -37,10 +45,18 @@ export default function Sidebar({
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') setDeferredPrompt(null);
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null); // Esconde o botão após instalar
+        toast.success("Instalação iniciada!");
+      }
+    } else {
+      toast.error("O aplicativo já está instalado ou o navegador não suporta.");
     }
   };
 
+  // ==========================================
+  // CONTROLES DE TIMES (Criar, Renomear, Excluir)
+  // ==========================================
   const openCreateModal = () => {
     setInputValue('');
     setModalConfig({ isOpen: true, type: 'create', teamId: null });
@@ -62,6 +78,7 @@ export default function Sidebar({
       setActiveTeamId(newId);
       toast.success(`Time ${inputValue.trim()} criado!`);
       if (window.innerWidth < 768) setIsSidebarOpen(false);
+      
     } else if (modalConfig.type === 'rename') {
       setTeams(teams.map(t => t.id === modalConfig.teamId ? { ...t, name: inputValue.trim() } : t));
       toast.success("Time renomeado!");
@@ -69,15 +86,12 @@ export default function Sidebar({
     setModalConfig({ isOpen: false, type: '', teamId: null });
   };
 
-  // ==========================================
-  // NOVA FUNÇÃO: LIMPAR CHAT (Puxada do ChatPage)
-  // ==========================================
   const handleClearChat = async (teamId, teamName) => {
     if (!user || !db) return;
-    const confirmClear = window.confirm(`Deseja apagar todo o histórico de mensagens do time "${teamName}"?`);
+    const confirmClear = window.confirm(`Deseja apagar todo o histórico de mensagens da sala de preleção do "${teamName}"?`);
     
     if (confirmClear) {
-      const loadingToast = toast.loading("Limpando histórico...");
+      const loadingToast = toast.loading("Limpando preleção...");
       try {
         const chatRef = collection(db, "users", user.uid, `chats_${teamId}`);
         const snapshot = await getDocs(chatRef);
@@ -86,7 +100,7 @@ export default function Sidebar({
         snapshot.docs.forEach((doc) => batch.delete(doc.ref));
         await batch.commit();
         
-        toast.success("Histórico limpo!", { id: loadingToast });
+        toast.success("Sala de preleção limpa!", { id: loadingToast });
       } catch (error) {
         toast.error("Erro ao limpar chat.", { id: loadingToast });
       }
@@ -94,13 +108,26 @@ export default function Sidebar({
     setOpenMenuId(null);
   };
 
-  const handleDeleteTeam = (id, name) => {
-    const confirmDelete = window.confirm(`Excluir o time "${name}"? Isso não apaga os dados do Firebase, apenas o acesso local.`);
+  const handleDeleteTeam = async (id, name) => {
+    const confirmDelete = window.confirm(`Tem certeza que deseja apagar a prancheta do time "${name}" permanentemente?`);
     if (confirmDelete) {
+      // 1. Remove da lista local (o App.jsx vai sincronizar essa nova lista no Firebase automaticamente)
       const updatedTeams = teams.filter(t => t.id !== id);
       setTeams(updatedTeams);
-      if (activeTeamId === id) setActiveTeamId(updatedTeams.length > 0 ? updatedTeams[0].id : null);
-      toast.success("Time removido da lista!");
+      
+      if (activeTeamId === id) {
+        setActiveTeamId(updatedTeams.length > 0 ? updatedTeams[0].id : null);
+      }
+
+      // 2. Apaga o documento do time do banco de dados para economizar espaço
+      if (user && db) {
+        try {
+          await deleteDoc(doc(db, "users", user.uid, "teams", id));
+        } catch (error) {
+          console.error("Erro ao deletar dados do time no firebase:", error);
+        }
+      }
+      toast.success("Time removido com sucesso!");
     }
     setOpenMenuId(null);
   };
@@ -112,24 +139,26 @@ export default function Sidebar({
 
   return (
     <>
-      {/* MODAL DESIGN PREMIUM */}
+      {/* MODAL DE CRIAÇÃO/EDIÇÃO */}
       {modalConfig.isOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-sm">
             <h3 className="text-xl font-bold text-slate-100 mb-4">
-              {modalConfig.type === 'create' ? 'Novo Time' : 'Renomear Time'}
+              {modalConfig.type === 'create' ? 'Nova Prancheta (Time)' : 'Renomear Time'}
             </h3>
             <form onSubmit={handleModalSubmit}>
               <input
                 type="text" autoFocus value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Nome do time..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all mb-6"
+                placeholder="Ex: Al-Hilal (OSM)"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all mb-6 placeholder:text-slate-600"
               />
               <div className="flex items-center justify-end gap-3">
-                <button type="button" onClick={() => setModalConfig({ isOpen: false, type: '', teamId: null })} className="px-4 py-2.5 text-sm font-medium text-slate-400 hover:text-white transition-colors">Cancelar</button>
+                <button type="button" onClick={() => setModalConfig({ isOpen: false, type: '', teamId: null })} className="px-4 py-2.5 text-sm font-medium text-slate-400 hover:text-white transition-colors">
+                  Cancelar
+                </button>
                 <button type="submit" disabled={!inputValue.trim()} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-colors shadow-md">
-                  {modalConfig.type === 'create' ? 'Criar Time' : 'Salvar'}
+                  {modalConfig.type === 'create' ? 'Criar Prancheta' : 'Salvar'}
                 </button>
               </div>
             </form>
@@ -137,17 +166,19 @@ export default function Sidebar({
         </div>
       )}
 
-      {/* SIDEBAR DARK */}
+      {/* SIDEBAR PRINCIPAL */}
       <aside className={`fixed md:relative z-50 w-72 flex-shrink-0 h-full bg-slate-900 border-r border-slate-800 flex flex-col transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 text-slate-200 shadow-xl`}>
         <div className="p-4 flex items-center justify-between">
-          <button onClick={openCreateModal} className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-100 px-4 py-3 rounded-2xl font-semibold transition-colors w-full justify-center shadow-md border border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
-            <Plus size={18} className="text-blue-400" /> Novo Time
+          <button onClick={openCreateModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-3 rounded-2xl font-bold transition-colors w-full justify-center shadow-lg shadow-blue-900/30 border border-blue-500 focus:ring-2 focus:ring-blue-400 outline-none">
+            <Plus size={18} /> Novo Time
           </button>
-          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-2"><X size={24} /></button>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-2 transition-colors">
+            <X size={24} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-700">
-          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-3 mb-3 mt-2">Times</p>
+          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-3 mb-3 mt-2">Suas Pranchetas</p>
           
           {teams.map((team) => (
             <div key={team.id} className="relative group flex items-center">
@@ -165,6 +196,7 @@ export default function Sidebar({
                 <MoreVertical size={16} />
               </button>
 
+              {/* MENU SUSPENSO (Dropdown) */}
               {openMenuId === team.id && (
                 <div ref={menuRef} className="absolute right-10 top-10 w-44 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-fade-in">
                   <button onClick={() => openRenameModal(team.id, team.name)} className="w-full text-left px-4 py-3 text-sm font-medium text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-3 transition-colors">
@@ -175,7 +207,7 @@ export default function Sidebar({
                   </button>
                   <div className="h-px bg-slate-700/50 w-full" />
                   <button onClick={() => handleDeleteTeam(team.id, team.name)} className="w-full text-left px-4 py-3 text-sm font-medium text-red-400 hover:bg-red-500/10 hover:text-red-300 flex items-center gap-3 transition-colors">
-                    <Trash2 size={16} /> Excluir
+                    <Trash2 size={16} /> Excluir Time
                   </button>
                 </div>
               )}
@@ -183,18 +215,21 @@ export default function Sidebar({
           ))}
         </div>
 
-        <div className="p-3 border-t border-slate-800 space-y-2">
+        {/* NAVEGAÇÃO E INSTALAÇÃO */}
+        <div className="p-3 border-t border-slate-800 space-y-2 bg-slate-900/90 backdrop-blur-sm">
+          
+          {/* O botão só aparece se o navegador permitir a instalação do PWA */}
           {deferredPrompt && (
-            <button onClick={handleInstallPWA} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm transition-colors bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold shadow-lg mb-4">
-              <Download size={18} /> Instalar Aplicativo
+            <button onClick={handleInstallPWA} className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl text-sm transition-colors bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg mb-4">
+              <Download size={18} /> Instalar no Celular
             </button>
           )}
           
-          <button onClick={() => changeTab('chat')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'chat' ? 'bg-slate-800 text-white font-semibold' : 'hover:bg-slate-800/50 text-slate-400'}`}>
-            <MessageSquare size={18} className={activeTab === 'chat' ? 'text-blue-400' : ''} /> Chat Tático
+          <button onClick={() => changeTab('chat')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'chat' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
+            <MessageSquare size={18} className={activeTab === 'chat' ? 'text-blue-400' : ''} /> Preleção (IA)
           </button>
-          <button onClick={() => changeTab('team')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'team' ? 'bg-slate-800 text-white font-semibold' : 'hover:bg-slate-800/50 text-slate-400'}`}>
-            <Users size={18} className={activeTab === 'team' ? 'text-blue-400' : ''} /> Escalação do Time
+          <button onClick={() => changeTab('team')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'team' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
+            <Users size={18} className={activeTab === 'team' ? 'text-blue-400' : ''} /> Gestão do Elenco
           </button>
         </div>
       </aside>

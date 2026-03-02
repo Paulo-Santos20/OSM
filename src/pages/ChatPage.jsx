@@ -1,4 +1,3 @@
-// src/pages/ChatPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, addDoc, query, orderBy, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 import { Camera, Send, Loader2, Bot, X, AlertTriangle, Trash2 } from 'lucide-react';
@@ -23,6 +22,7 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isChatLoading]);
 
+  // Carrega as mensagens com Memória (Cofre Seguro)
   useEffect(() => {
     if (!db || !activeTeamId || !user) return;
     setMessages([]);
@@ -80,6 +80,9 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     }
   };
 
+  // ==========================================
+  // FUNÇÃO DE BACKUP: GROQ / LLAMA 3.2 VISION
+  // ==========================================
   const chatWithBackupAI = async (chatHistory, currentPrompt, base64ImagesArray, systemPrompt) => {
     const groqApiKey = import.meta.env.VITE_GROQ_API_KEY;
     if (!groqApiKey) throw new Error("Chave do Groq não configurada.");
@@ -88,7 +91,7 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
       { role: "system", content: systemPrompt },
       ...chatHistory.map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
-        content: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) enviada(s)]` : "")
+        content: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) enviada(s) anteriormente]` : "")
       }))
     ];
 
@@ -97,6 +100,7 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     
     if (base64ImagesArray && base64ImagesArray.length > 0) {
       base64ImagesArray.forEach(b64 => {
+        // Groq/Llama Vision aceita base64 via URL scheme
         currentContent.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${b64}` } });
       });
     }
@@ -110,10 +114,9 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        // Atualizado para usar o modelo solicitado
-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        model: "llama-3.2-11b-vision-preview", // Modelo suportado para Visão no Groq
         messages: mappedMessages,
-        temperature: 0.2,
+        temperature: 0.1,
         max_tokens: 4096
       })
     });
@@ -127,6 +130,9 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
     return data.choices[0].message.content;
   };
 
+  // ==========================================
+  // HANDLER PRINCIPAL DE MENSAGENS
+  // ==========================================
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if ((!inputText.trim() && selectedImages.length === 0) || !db || !activeTeamId || !user) return;
@@ -144,28 +150,17 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
       let base64Images = [];
       let promptToSend = userMessageText;
 
-      // ==========================================
-      // LÓGICA DE AUTO-PROMPT OTIMIZADA PARA LEITURA DIRETA
-      // ==========================================
+      // Auto-Prompt Inteligente se houver imagens
       if (selectedImages.length > 0) {
         base64Images = await Promise.all(selectedImages.map(img => compressImageToBase64(img)));
         
         if (!promptToSend) {
-          promptToSend = `Atue como meu Analista Tático Sênior. Foram enviadas imagens do meu próximo jogo. Siga RIGOROSAMENTE estes passos e me mostre o raciocínio:
-
-1️⃣ OVR E ÁRBITRO (Leitura Direta): Procure a imagem de confronto (onde mostra os dois escudos). Leia o número grande que representa o OVR do adversário. Identifique também a cor do ícone do árbitro (Referee).
-2️⃣ FORMAÇÃO: Olhe a outra imagem e identifique a formação tática do adversário (Ex: 4-3-3 B).
-3️⃣ DIFERENÇA DE FORÇA: O OVR do meu time é exato ${teamData.teamOvr || 0}. Subtraia o meu OVR pelo OVR do adversário lido no passo 1. Isso define nosso "Bucket" (Somos Favoritos, Equilibrados ou Azarões?).
-4️⃣ DECISÃO TÁTICA: Usando as regras da nossa Master Decision Engine, cruze a diferença de OVR e a Formação deles e me recomende exatamente:
-- Formação Ideal de Counter
-- Estilo de Jogo
-- Nível de Desarme (baseado estritamente na cor do árbitro)
-- Sliders Numéricos Exatos (Pressão, Estilo e Tempo)
-- Marcação (Zona ou Individual)
-- Linha de Impedimento (Sim/Não) e Instruções de Linha (Ataque, Meio, Defesa).`;
+          promptToSend = `Analise estas imagens do meu próximo jogo. O OVR do meu time é exato ${teamData.teamOvr || 0}.
+Cruze a diferença do meu OVR com o do adversário, detecte a tática dele e me forneça a estratégia completa seguindo rigorosamente a estrutura do seu manual.`;
         }
       }
 
+      // Preparando a Memória
       const chatHistory = messages.map(msg => ({
         text: msg.text,
         sender: msg.sender,
@@ -177,9 +172,10 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
       try {
         if (!ai) throw new Error("Gemini não configurado");
 
+        // Formatando histórico para o Gemini
         const geminiHistory = chatHistory.map(msg => ({
           role: msg.sender === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagens do adversário enviadas]` : "") }]
+          parts: [{ text: msg.text || (msg.imageCount ? `[${msg.imageCount} Imagem(ns) do adversário analisada(s)]` : "") }]
         }));
 
         const currentParts = [];
@@ -193,19 +189,21 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
         const response = await ai.models.generateContent({
           model: 'gemini-2.5-flash',
           contents: finalContents,
-          config: { systemInstruction: systemPrompt, temperature: 0.1 } // Temp reduzida para maior precisão analítica
+          config: { systemInstruction: systemPrompt, temperature: 0.1 } 
         });
 
         aiResponseText = response.text;
       } catch (geminiError) {
-        console.warn("⚠️ Gemini ocupado. Acionando auxiliar tático de backup (Groq)...", geminiError);
-        const loadingId = toast.loading("Acionando assistente de backup...");
+        console.warn("⚠️ Gemini ocupado. Acionando auxiliar Groq...", geminiError);
+        const loadingId = toast.loading("Acionando assistente de backup (Groq)...");
         
+        // Chamada para o Groq Fallback
         aiResponseText = await chatWithBackupAI(chatHistory, promptToSend, base64Images, systemPrompt);
         
         toast.success("Análise concluída pelo Backup!", { id: loadingId });
       }
 
+      // Salvando a resposta
       await addDoc(collection(db, "users", user.uid, `chats_${activeTeamId}`), { 
         text: aiResponseText, 
         sender: 'ai', 
@@ -216,7 +214,7 @@ export default function ChatPage({ activeTeamId, activeTeamName, teamData, user 
       console.error(error);
       toast.error("Falha ao analisar a tática.");
       await addDoc(collection(db, "users", user.uid, `chats_${activeTeamId}`), { 
-        text: "Desculpe, professor. Não consegui processar as imagens enviadas. Pode enviar novamente?", 
+        text: "Desculpe, professor. Ocorreu um erro ao processar os dados táticos. Pode enviar novamente?", 
         sender: 'ai', 
         timestamp: new Date() 
       });

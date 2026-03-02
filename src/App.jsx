@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Toaster, toast } from "react-hot-toast";
 import { Menu, AlertTriangle, LogOut, Loader2 } from "lucide-react";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 
 import { db, auth, isFirebaseConfigured } from "./config/firebase";
@@ -13,18 +13,15 @@ import TeamPage from "./pages/TeamPage";
 import LoginPage from "./pages/LoginPage";
 
 export default function App() {
-  // 1. DECLARAÇÃO DOS ESTADOS (Essencial para evitar o ReferenceError)
-  const [user, setUser] = useState(null); 
+  const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
 
-  const [teams, setTeams] = useState(() => {
-    const saved = localStorage.getItem("osm_teams_list");
-    return saved ? JSON.parse(saved) : [{ id: "vitoria", name: "Vitória (Principal)" }];
-  });
+  // A lista de times agora começa vazia e será preenchida pelo Firebase
+  const [teams, setTeams] = useState([]);
+  const [activeTeamId, setActiveTeamId] = useState(null);
   
-  const [activeTeamId, setActiveTeamId] = useState("vitoria");
   const [teamData, setTeamData] = useState({ 
     formation: "Carregando...", 
     teamOvr: 0, 
@@ -33,7 +30,9 @@ export default function App() {
 
   const isConfigured = isFirebaseConfigured && Boolean(ai);
 
-  // 2. MONITORAMENTO DE AUTH
+  // ==========================================
+  // 1. MONITORAMENTO DE LOGIN
+  // ==========================================
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
@@ -46,12 +45,59 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 3. SINCRONIZAÇÃO LOCAL
+  // ==========================================
+  // 2. SINCRONIZAÇÃO DA SIDEBAR COM O FIREBASE (O Pulo do Gato)
+  // ==========================================
+  // Busca a lista de times do usuário quando ele faz login
   useEffect(() => {
-    localStorage.setItem("osm_teams_list", JSON.stringify(teams));
-  }, [teams]);
+    if (!user || !db) {
+      setTeams([]);
+      return;
+    }
 
-  // 4. BUSCA DE DADOS NO FIREBASE (COFRE SEGURO)
+    const fetchUserTeams = async () => {
+      try {
+        const docRef = doc(db, "users", user.uid, "settings", "teamList");
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists() && docSnap.data().teams?.length > 0) {
+          const loadedTeams = docSnap.data().teams;
+          setTeams(loadedTeams);
+          setActiveTeamId(loadedTeams[0].id); // Seleciona o primeiro time por padrão
+        } else {
+          // Conta nova: Cria o time padrão de boas-vindas direto na nuvem
+          const defaultTeam = [{ id: `time-inicial-${Date.now()}`, name: "Meu Primeiro Time" }];
+          setTeams(defaultTeam);
+          setActiveTeamId(defaultTeam[0].id);
+          await setDoc(docRef, { teams: defaultTeam });
+        }
+      } catch (error) {
+        console.error("Erro ao carregar lista de times:", error);
+        toast.error("Erro ao sincronizar seus times.");
+      }
+    };
+
+    fetchUserTeams();
+  }, [user]);
+
+  // Salva automaticamente a lista de times na nuvem sempre que você criar/excluir/renomear um time
+  useEffect(() => {
+    if (!user || !db || teams.length === 0) return;
+    
+    const saveTeamsToCloud = async () => {
+      try {
+        await setDoc(doc(db, "users", user.uid, "settings", "teamList"), { teams });
+      } catch (error) {
+        console.error("Erro ao salvar lista de times:", error);
+      }
+    };
+    
+    saveTeamsToCloud();
+  }, [teams, user]);
+
+  // ==========================================
+  // 3. BUSCA DOS DADOS DO TIME ATIVO (Escalação)
+  // ==========================================
   useEffect(() => {
     if (!db || !activeTeamId || !user) return;
 
@@ -63,29 +109,31 @@ export default function App() {
           setTeamData(docSnap.data());
         } else {
           setTeamData({ 
-            formation: "Nenhuma escalação", 
+            formation: "4-3-3B", 
             teamOvr: 0, 
             players: [] 
           });
         }
       } catch (error) {
-        console.error("Erro ao buscar dados:", error);
-        toast.error("Erro ao sincronizar dados.");
+        console.error("Erro ao buscar dados do time:", error);
       }
     };
 
     fetchTeamData();
   }, [activeTeamId, user]);
 
-  const activeTeamName = teams.find((t) => t.id === activeTeamId)?.name || "Nenhum Time";
+  const activeTeamName = teams.find((t) => t.id === activeTeamId)?.name || "Carregando...";
 
-  const handleLogout = () => signOut(auth);
+  const handleLogout = async () => {
+    // Limpa os dados visuais antes de deslogar para evitar vazamento visual
+    setTeams([]);
+    setActiveTeamId(null);
+    await signOut(auth);
+  };
 
   // ==========================================
   // RENDERIZAÇÃO CONDICIONAL
   // ==========================================
-
-  // Caso as chaves do .env não existam
   if (!isConfigured) return (
     <div className="flex flex-col items-center justify-center h-screen bg-slate-950 p-6 text-center text-slate-100">
       <AlertTriangle size={48} className="text-yellow-500 mb-4" />
@@ -94,20 +142,24 @@ export default function App() {
     </div>
   );
 
-  // Enquanto verifica o login
   if (authLoading) return (
     <div className="h-screen bg-slate-950 flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
         <Loader2 className="animate-spin text-blue-500" size={40} />
-        <p className="text-slate-400 animate-pulse">Autenticando...</p>
+        <p className="text-slate-400 animate-pulse font-medium">Autenticando prancheta...</p>
       </div>
     </div>
   );
 
-  // Se não estiver logado, exibe a página de Login
   if (!user) return <LoginPage />;
 
-  // App Principal (Usuário Logado)
+  // Impede a renderização principal enquanto o Firebase não carrega os times da conta
+  if (teams.length === 0 || !activeTeamId) return (
+    <div className="h-screen bg-slate-950 flex items-center justify-center">
+      <Loader2 className="animate-spin text-blue-500" size={40} />
+    </div>
+  );
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden selection:bg-blue-600/30">
       <Toaster position="top-center" 
@@ -136,18 +188,18 @@ export default function App() {
       <main className="flex-1 flex flex-col h-full relative w-full bg-slate-950">
         <header className="flex items-center justify-between p-4 z-10 sticky top-0 bg-slate-950/80 backdrop-blur-md border-b border-slate-800">
           <div className="flex items-center gap-3">
-            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-slate-300 hover:bg-slate-800 rounded-full">
+            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden p-2 text-slate-300 hover:bg-slate-800 rounded-full transition-colors">
               <Menu size={24} />
             </button>
-            <h2 className="text-lg font-semibold text-slate-100">
+            <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               {activeTeamName} 
-              <span className="text-slate-500 text-sm font-normal ml-2">
-                • {activeTab === "chat" ? "Táticas" : "Elenco"}
+              <span className="bg-slate-800 text-blue-400 text-[10px] px-2 py-1 rounded-md uppercase tracking-wider hidden sm:inline-block">
+                {activeTab === "chat" ? "Táticas" : "Elenco"}
               </span>
             </h2>
           </div>
           
-          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-400 transition-colors flex items-center gap-2" title="Sair">
+          <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-red-400 transition-colors flex items-center gap-2 rounded-lg hover:bg-slate-800" title="Sair do App">
             <span className="hidden sm:inline text-xs font-bold uppercase tracking-wider">Sair</span>
             <LogOut size={18} />
           </button>
