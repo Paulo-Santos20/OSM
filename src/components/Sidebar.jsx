@@ -1,6 +1,6 @@
 // src/components/Sidebar.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX, Target } from 'lucide-react'; // Import do ícone Target
+import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX, Target, Dices } from 'lucide-react'; // Import do ícone Dices e Target
 import { collection, getDocs, writeBatch, doc, deleteDoc } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 
@@ -228,6 +228,9 @@ export default function Sidebar({
           </button>
           <button onClick={() => changeTab('rivals')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'rivals' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
             <Target size={18} className={activeTab === 'rivals' ? 'text-red-400' : ''} /> Dossiê de Rivais
+          </button>
+          <button onClick={() => changeTab('simulator')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'simulator' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}>
+            <Dices size={18} className={activeTab === 'simulator' ? 'text-purple-400' : ''} /> Simulador Pré-Match
           </button>
         </div>
       </aside>

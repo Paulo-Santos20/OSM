@@ -1,7 +1,10 @@
 // src/pages/TeamPage.jsx
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { Camera, Loader2, Save, AlertTriangle, UserPlus, Zap, Trash2, Plus, Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2 } from 'lucide-react';
+import { 
+  Camera, Loader2, Save, AlertTriangle, UserPlus, Zap, Trash2, Plus, 
+  Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, Search, TrendingUp 
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../config/firebase';
 import { ai } from '../config/gemini';
@@ -140,9 +143,9 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   
-  // Modais e Ref
   const teamImageInputRef = useRef(null);
   const [marketModal, setMarketModal] = useState({ isOpen: false, player: null, baseValue: '' });
+  const [scoutModalOpen, setScoutModalOpen] = useState(false);
   const [copiedValue, setCopiedValue] = useState('');
 
   useEffect(() => {
@@ -190,7 +193,6 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
 
     sortedPlayers.forEach(player => {
       if (player.unavailable || player.energy < 75) return;
-
       const pPos = player.pos?.toUpperCase() || '';
       const pSector = getMacroSector(pPos);
 
@@ -213,13 +215,10 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
     updatedRoster = updatedRoster.map(p => {
       const foundInScan = scannedPlayers.find(s => s.name.toUpperCase() === p.name.toUpperCase());
       if (!foundInScan) return { ...p }; 
-
       const maxOvr = Math.max(Number(foundInScan.att) || 0, Number(foundInScan.def) || 0, Number(foundInScan.ovr) || 0);
       return { 
         ...p, att: foundInScan.att, def: foundInScan.def, ovr: maxOvr, pos: foundInScan.pos || p.pos,
-        age: foundInScan.age || p.age || 25, 
-        energy: p.energy !== undefined ? p.energy : 100,
-        unavailable: p.unavailable || false
+        age: foundInScan.age || p.age || 25, energy: p.energy !== undefined ? p.energy : 100, unavailable: p.unavailable || false
       };
     });
 
@@ -228,11 +227,8 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
       if (!exists) {
         const maxOvr = Math.max(Number(scannedPlayer.att) || 0, Number(scannedPlayer.def) || 0, Number(scannedPlayer.ovr) || 0);
         updatedRoster.push({
-          ...scannedPlayer,
-          ovr: maxOvr,
-          age: scannedPlayer.age || 25,
-          id: `player_${Date.now()}_${idx}`,
-          isBench: true, pitchPos: null, energy: 100, unavailable: false
+          ...scannedPlayer, ovr: maxOvr, age: scannedPlayer.age || 25,
+          id: `player_${Date.now()}_${idx}`, isBench: true, pitchPos: null, energy: 100, unavailable: false
         });
       }
     });
@@ -398,13 +394,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
     }
   };
 
-  // ==========================================
-  // FUNÇÕES DE MERCADO (Cálculo e Copiar)
-  // ==========================================
-  const handleOpenMarket = (player) => {
-    setMarketModal({ isOpen: true, player, baseValue: '' });
-  };
-
+  const handleOpenMarket = (player) => setMarketModal({ isOpen: true, player, baseValue: '' });
   const handleCopyValue = (valueStr) => {
     navigator.clipboard.writeText(valueStr);
     setCopiedValue(valueStr);
@@ -421,18 +411,18 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
   const currentFormationStr = teamData.formation || "4-3-3B";
   const pitchSlots = FORMATIONS_MAP[currentFormationStr] || FORMATIONS_MAP["4-3-3B"];
 
+  // ==========================================
+  // ALGORITMOS NATIVOS (ESPECIALISTAS E SCOUT)
+  // ==========================================
   const getSpecialists = useMemo(() => {
     if (starters.length === 0) return { captain: null, penalties: null, freeKicks: null, corners: null };
-
     const attackers = starters.filter(p => getMacroSector(p.pos) === 'ATT');
     const midfielders = starters.filter(p => getMacroSector(p.pos) === 'MID');
 
     const captain = [...starters].sort((a, b) => (b.age || 0) - (a.age || 0) || b.ovr - a.ovr)[0];
     const penalties = [...attackers].sort((a, b) => b.att - a.att || b.ovr - a.ovr)[0] || starters[0];
-    
     let freeKicks = [...midfielders].sort((a, b) => b.att - a.att || b.ovr - a.ovr)[0];
     if (!freeKicks) freeKicks = [...attackers].sort((a, b) => b.att - a.att || b.ovr - a.ovr)[0] || starters[0];
-    
     let cornersPool = midfielders.filter(p => p.id !== freeKicks?.id);
     if (cornersPool.length === 0) cornersPool = midfielders;
     const corners = [...cornersPool].sort((a, b) => b.ovr - a.ovr)[0] || starters[0];
@@ -440,61 +430,130 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
     return { captain, penalties, freeKicks, corners };
   }, [starters]);
 
+  const getScoutRecommendation = useMemo(() => {
+    if (starters.length === 0) return null;
+    
+    // O elo mais fraco é o de menor OVR. Se empatar, pega o mais velho.
+    const weakestLink = [...starters].sort((a, b) => {
+      if (a.ovr !== b.ovr) return a.ovr - b.ovr;
+      return (b.age || 25) - (a.age || 25);
+    })[0];
+
+    let scoutPos = "";
+    let scoutStyle = "";
+    const pPos = weakestLink.pos.toUpperCase();
+    const macro = getMacroSector(pPos);
+
+    if (macro === 'GK') {
+      scoutPos = "Goleiro"; scoutStyle = "Geral";
+    } else if (macro === 'DEF') {
+      scoutPos = "Defensor";
+      scoutStyle = ['LB', 'RB', 'LWB', 'RWB', 'LAT'].includes(pPos) ? "Ofensivo (Laterais)" : "Defensivo (Zagueiros)";
+    } else if (macro === 'MID') {
+      scoutPos = "Meio-campista";
+      if (['CAM', 'MEI'].includes(pPos)) scoutStyle = "Ofensivo (Attacking)";
+      else if (['CDM', 'VOL'].includes(pPos)) scoutStyle = "Defensivo (Defensive)";
+      else scoutStyle = "Armador (Box-to-box / Balanced)";
+    } else {
+      scoutPos = "Atacante";
+      scoutStyle = ['LW', 'RW', 'PE', 'PD'].includes(pPos) ? "Atacante Pelas Alas (Winger)" : "Ponta de Lança (Poacher)";
+    }
+
+    const tOvr = teamData.teamOvr || 80;
+    const targetOvr = tOvr + 2;
+    let qualityStr = "85+";
+    if (targetOvr < 60) qualityStr = "50-59";
+    else if (targetOvr < 70) qualityStr = "60-69";
+    else if (targetOvr < 80) qualityStr = "70-79";
+    else if (targetOvr < 85) qualityStr = "80-84";
+
+    return { weakest: weakestLink, scoutPos, scoutStyle, quality: qualityStr, age: "Jovem (< 25 anos)" };
+  }, [starters, teamData.teamOvr]);
+
   return (
     <div className="p-4 pb-10 max-w-[1400px] mx-auto w-full animate-fade-in outline-none relative" tabIndex={0} onPaste={handlePasteAnywhere}>
       
-      {/* MODAL DE MERCADO (Calculadora Inline) */}
+      {/* MODAL DE MERCADO */}
       {marketModal.isOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-sm relative">
             <button onClick={() => setMarketModal({ isOpen: false, player: null, baseValue: '' })} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">✕</button>
-            
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-12 h-12 bg-emerald-900/30 text-emerald-400 border border-emerald-800/50 rounded-full flex items-center justify-center font-bold text-lg shadow-inner">
-                {marketModal.player?.ovr}
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-100">{marketModal.player?.name}</h3>
-                <span className="text-xs text-emerald-400 font-semibold uppercase tracking-wider">Calculadora de Revenda</span>
-              </div>
+              <div className="w-12 h-12 bg-emerald-900/30 text-emerald-400 border border-emerald-800/50 rounded-full flex items-center justify-center font-bold text-lg shadow-inner">{marketModal.player?.ovr}</div>
+              <div><h3 className="text-xl font-bold text-slate-100">{marketModal.player?.name}</h3><span className="text-xs text-emerald-400 font-semibold uppercase tracking-wider">Calculadora de Revenda</span></div>
             </div>
-
             <label className="block text-sm font-medium text-slate-400 mb-2">Valor Base no OSM (Ex: 10.5)</label>
             <div className="relative mb-6">
               <DollarSign className="absolute left-3 top-3.5 text-slate-500" size={20} />
-              <input 
-                type="number" step="0.1" autoFocus
-                value={marketModal.baseValue} onChange={(e) => setMarketModal({ ...marketModal, baseValue: e.target.value })}
-                placeholder="0.0"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-lg font-bold"
-              />
+              <input type="number" step="0.1" autoFocus value={marketModal.baseValue} onChange={(e) => setMarketModal({ ...marketModal, baseValue: e.target.value })} placeholder="0.0" className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3 pl-10 pr-4 text-slate-200 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-lg font-bold" />
             </div>
-
             {marketModal.baseValue && parseFloat(marketModal.baseValue) > 0 && (
               <div className="space-y-3 animate-fade-in">
-                {/* Venda Rápida (1.6x) */}
                 <div className="bg-slate-800 border border-slate-700 p-4 rounded-xl flex items-center justify-between group">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-1">Venda Rápida (1.6x)</span>
-                    <span className="text-2xl font-black text-slate-200">{(parseFloat(marketModal.baseValue) * 1.6).toFixed(1)} <span className="text-sm font-medium text-slate-500">M</span></span>
-                  </div>
-                  <button onClick={() => handleCopyValue((parseFloat(marketModal.baseValue) * 1.6).toFixed(1))} className="p-2.5 bg-slate-900 hover:bg-blue-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-slate-700">
-                    {copiedValue === (parseFloat(marketModal.baseValue) * 1.6).toFixed(1) ? <CheckCircle2 size={20} className="text-emerald-400" /> : <Copy size={20} />}
-                  </button>
+                  <div className="flex flex-col"><span className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-1">Venda Rápida (1.6x)</span><span className="text-2xl font-black text-slate-200">{(parseFloat(marketModal.baseValue) * 1.6).toFixed(1)} <span className="text-sm font-medium text-slate-500">M</span></span></div>
+                  <button onClick={() => handleCopyValue((parseFloat(marketModal.baseValue) * 1.6).toFixed(1))} className="p-2.5 bg-slate-900 hover:bg-blue-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-slate-700">{copiedValue === (parseFloat(marketModal.baseValue) * 1.6).toFixed(1) ? <CheckCircle2 size={20} className="text-emerald-400" /> : <Copy size={20} />}</button>
                 </div>
-
-                {/* Lucro Máximo (2.5x) */}
                 <div className="bg-slate-800 border border-emerald-900/50 p-4 rounded-xl flex items-center justify-between group">
-                  <div className="flex flex-col">
-                    <span className="text-xs text-emerald-400 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Zap size={12}/> Lucro Máximo (2.5x)</span>
-                    <span className="text-2xl font-black text-white">{(parseFloat(marketModal.baseValue) * 2.5).toFixed(1)} <span className="text-sm font-medium text-emerald-500/50">M</span></span>
-                  </div>
-                  <button onClick={() => handleCopyValue((parseFloat(marketModal.baseValue) * 2.5).toFixed(1))} className="p-2.5 bg-slate-900 hover:bg-emerald-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-emerald-900/50">
-                    {copiedValue === (parseFloat(marketModal.baseValue) * 2.5).toFixed(1) ? <CheckCircle2 size={20} className="text-emerald-400" /> : <Copy size={20} />}
-                  </button>
+                  <div className="flex flex-col"><span className="text-xs text-emerald-400 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><Zap size={12}/> Lucro Máximo (2.5x)</span><span className="text-2xl font-black text-white">{(parseFloat(marketModal.baseValue) * 2.5).toFixed(1)} <span className="text-sm font-medium text-emerald-500/50">M</span></span></div>
+                  <button onClick={() => handleCopyValue((parseFloat(marketModal.baseValue) * 2.5).toFixed(1))} className="p-2.5 bg-slate-900 hover:bg-emerald-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-emerald-900/50">{copiedValue === (parseFloat(marketModal.baseValue) * 2.5).toFixed(1) ? <CheckCircle2 size={20} className="text-emerald-400" /> : <Copy size={20} />}</button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DO DIRETOR DE SCOUT */}
+      {scoutModalOpen && scoutRecommendation && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-md relative">
+            <button onClick={() => setScoutModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">✕</button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-blue-600 p-3 rounded-xl shadow-lg shadow-blue-900/30">
+                <Search size={24} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-100">Diretor de Olheiros</h3>
+                <span className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Análise Automática do Elenco</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2 flex items-center gap-1"><AlertTriangle size={14} className="text-yellow-500"/> Elo mais fraco identificado</p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center font-bold text-slate-300">
+                  {scoutRecommendation.weakest.ovr}
+                </div>
+                <div>
+                  <p className="font-bold text-slate-200">{scoutRecommendation.weakest.name}</p>
+                  <p className="text-xs text-slate-500">Idade: {scoutRecommendation.weakest.age} anos • Pos: {scoutRecommendation.weakest.pos}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-950/20 border border-blue-900/50 rounded-xl p-4">
+              <p className="text-xs text-blue-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-1"><TrendingUp size={14}/> Parâmetros Sugeridos para o Jogo</p>
+              <ul className="space-y-2 text-sm text-slate-300">
+                <li className="flex justify-between border-b border-blue-900/30 pb-1">
+                  <span className="text-slate-500">Posição:</span> <strong className="text-slate-100">{scoutRecommendation.scoutPos}</strong>
+                </li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1">
+                  <span className="text-slate-500">Estilo:</span> <strong className="text-slate-100">{scoutRecommendation.scoutStyle}</strong>
+                </li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1">
+                  <span className="text-slate-500">Qualidade:</span> <strong className="text-slate-100">{scoutRecommendation.quality}</strong>
+                </li>
+                <li className="flex justify-between border-b border-blue-900/30 pb-1">
+                  <span className="text-slate-500">Idade:</span> <strong className="text-slate-100">{scoutRecommendation.age}</strong>
+                </li>
+                <li className="flex justify-between">
+                  <span className="text-slate-500">Nacionalidade:</span> <strong className="text-slate-100">Qualquer</strong>
+                </li>
+              </ul>
+            </div>
+            
+            <button onClick={() => setScoutModalOpen(false)} className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-colors">Entendido</button>
           </div>
         </div>
       )}
@@ -529,7 +588,6 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
         
         {/* COLUNA ESQUERDA: CAMPO E BANCO */}
         <div className="flex-1 flex flex-col gap-6">
-          
           <div className="bg-slate-800 p-4 md:p-6 rounded-2xl shadow-xl border border-slate-700">
             <h2 className="text-xl font-bold mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between text-slate-200 gap-4">
               <span className="flex items-center gap-2"><Zap className="text-yellow-400" size={20}/> Tática em Campo</span>
@@ -601,43 +659,51 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
           </div>
         </div>
 
-        {/* COLUNA DIREITA: ESPECIALISTAS E GESTÃO */}
+        {/* COLUNA DIREITA: ESPECIALISTAS, SCOUT E GESTÃO */}
         <div className="xl:w-[50%] flex flex-col gap-6">
           
-          <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4">
-             <h4 className="font-bold text-slate-200 mb-4 flex items-center gap-2">
-                <Target className="text-purple-400" size={20}/> Especialistas em Bolas Paradas
-             </h4>
-             <div className="grid grid-cols-2 gap-3">
-                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-yellow-900/30 text-yellow-400 rounded-lg"><Award size={20} /></div>
-                  <div className="flex flex-col truncate">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Capitão</span>
-                    <span className="text-sm font-bold text-slate-200 truncate">{getSpecialists.captain?.name || "N/A"}</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4">
+               <h4 className="font-bold text-slate-200 mb-4 flex items-center gap-2 text-sm">
+                  <Target className="text-purple-400" size={18}/> Bolas Paradas
+               </h4>
+               <div className="space-y-2">
+                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Award size={14}/> Capitão</span>
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.captain?.name || "N/A"}</span>
                   </div>
-                </div>
-                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-blue-900/30 text-blue-400 rounded-lg"><Target size={20} /></div>
-                  <div className="flex flex-col truncate">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Pênaltis</span>
-                    <span className="text-sm font-bold text-slate-200 truncate">{getSpecialists.penalties?.name || "N/A"}</span>
+                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Target size={14}/> Pênaltis</span>
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.penalties?.name || "N/A"}</span>
                   </div>
-                </div>
-                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-red-900/30 text-red-400 rounded-lg"><Flag size={20} /></div>
-                  <div className="flex flex-col truncate">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Faltas</span>
-                    <span className="text-sm font-bold text-slate-200 truncate">{getSpecialists.freeKicks?.name || "N/A"}</span>
+                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><Flag size={14}/> Faltas</span>
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.freeKicks?.name || "N/A"}</span>
                   </div>
-                </div>
-                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl flex items-center gap-3">
-                  <div className="p-2 bg-emerald-900/30 text-emerald-400 rounded-lg"><CornerUpLeft size={20} /></div>
-                  <div className="flex flex-col truncate">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">Escanteios</span>
-                    <span className="text-sm font-bold text-slate-200 truncate">{getSpecialists.corners?.name || "N/A"}</span>
+                  <div className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase flex items-center gap-1.5"><CornerUpLeft size={14}/> Escanteios</span>
+                    <span className="text-xs font-bold text-slate-200 truncate max-w-[100px]">{getSpecialists.corners?.name || "N/A"}</span>
                   </div>
+               </div>
+            </div>
+
+            {/* CARD NOVO DO OLHEIRO (SCOUT) */}
+            <div className="bg-gradient-to-br from-blue-900/40 to-slate-800 rounded-2xl shadow-xl border border-blue-800/50 p-4 flex flex-col justify-center">
+              <div className="flex flex-col items-center text-center">
+                <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center mb-3 shadow-lg shadow-blue-900/50">
+                  <Search className="text-white" size={20} />
                 </div>
-             </div>
+                <h4 className="font-bold text-slate-100 mb-1">Diretor de Scout</h4>
+                <p className="text-xs text-blue-200/70 mb-4 px-2">Descubra matematicamente o elo mais fraco do seu time titular.</p>
+                <button 
+                  onClick={() => setScoutModalOpen(true)}
+                  disabled={starters.length === 0}
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition-colors disabled:opacity-50"
+                >
+                  Onde preciso melhorar?
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-between items-center">
@@ -647,7 +713,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
             </button>
           </div>
           
-          <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 overflow-hidden flex flex-col h-[700px]">
+          <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 overflow-hidden flex flex-col h-[600px]">
             <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-700 mb-4">
               <span className="text-slate-400 text-sm font-bold">OVR Titulares (Força):</span>
               <span className="text-green-400 text-2xl font-black">{teamData.teamOvr || 0}</span>
@@ -681,7 +747,6 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                     <Ban size={12} />
                   </button>
 
-                  {/* NOVO: Botão de Calculadora de Mercado */}
                   <button onClick={() => handleOpenMarket(player)} className="col-span-1 flex justify-center py-1.5 rounded transition-colors border bg-slate-950 border-slate-800 text-emerald-500 hover:bg-emerald-900/30 hover:border-emerald-500/50" title="Revenda no Mercado">
                     <DollarSign size={14} />
                   </button>
