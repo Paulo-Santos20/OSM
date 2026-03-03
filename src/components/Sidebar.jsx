@@ -1,6 +1,6 @@
 // src/components/Sidebar.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX, Target, Dices, Share } from 'lucide-react';
+import { Plus, X, MessageSquare, Users, MoreVertical, Edit2, Trash2, Download, MessageSquareX, Target, Dices, Share, Calendar } from 'lucide-react'; // Importei o Calendar
 import { collection, getDocs, writeBatch, doc, deleteDoc } from 'firebase/firestore'; 
 import toast from 'react-hot-toast';
 
@@ -10,12 +10,10 @@ export default function Sidebar({
 }) {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
-  
-  // Detecção de iOS para mostrar botão de instalação manual
   const [isIOS, setIsIOS] = useState(false);
   const [showIOSPrompt, setShowIOSPrompt] = useState(false);
-
   const menuRef = useRef(null);
+
   const [modalConfig, setModalConfig] = useState({ isOpen: false, type: '', teamId: null });
   const [inputValue, setInputValue] = useState('');
 
@@ -27,26 +25,13 @@ export default function Sidebar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // ==========================================
-  // LÓGICA DE INSTALAÇÃO PWA (Android/PC e iOS)
-  // ==========================================
   useEffect(() => {
-    // Detecta se é um dispositivo Apple
     const userAgent = window.navigator.userAgent.toLowerCase();
     const isIosDevice = /iphone|ipad|ipod/.test(userAgent);
-    
-    // Verifica se já está rodando como PWA instalado
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-    
-    if (isIosDevice && !isStandalone) {
-      setIsIOS(true);
-    }
+    if (isIosDevice && !isStandalone) setIsIOS(true);
 
-    const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    
+    const handleBeforeInstallPrompt = (e) => { e.preventDefault(); setDeferredPrompt(e); };
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
@@ -55,10 +40,7 @@ export default function Sidebar({
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null);
-        toast.success("Instalação iniciada!");
-      }
+      if (outcome === 'accepted') { setDeferredPrompt(null); toast.success("Instalação iniciada!"); }
     }
   };
 
@@ -133,7 +115,6 @@ export default function Sidebar({
         </div>
       )}
 
-      {/* MODAL DE INSTRUÇÃO PARA IOS */}
       {showIOSPrompt && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center p-4 animate-fade-in" onClick={() => setShowIOSPrompt(false)}>
           <div className="bg-slate-900 border border-slate-700 p-6 rounded-3xl shadow-2xl w-full max-w-sm text-center mb-10 sm:mb-0" onClick={e => e.stopPropagation()}>
@@ -172,8 +153,6 @@ export default function Sidebar({
         </div>
 
         <div className="p-3 border-t border-slate-800 space-y-2 bg-slate-900/90 backdrop-blur-sm">
-          
-          {/* LÓGICA DO BOTÃO PWA PARA ANDROID/PC vs IOS */}
           {deferredPrompt ? (
             <button onClick={handleInstallPWA} className="w-full flex items-center justify-center gap-2 px-3 py-3.5 rounded-xl text-sm transition-colors bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg mb-4">
               <Download size={18} /> Instalar no Celular
@@ -186,6 +165,10 @@ export default function Sidebar({
           
           <button onClick={() => changeTab('chat')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'chat' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}><MessageSquare size={18} className={activeTab === 'chat' ? 'text-blue-400' : ''} /> Preleção (IA)</button>
           <button onClick={() => changeTab('team')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'team' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}><Users size={18} className={activeTab === 'team' ? 'text-blue-400' : ''} /> Gestão do Elenco</button>
+          
+          {/* NOVO BOTÃO DE CALENDÁRIO ADICIONADO AQUI */}
+          <button onClick={() => changeTab('calendar')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'calendar' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}><Calendar size={18} className={activeTab === 'calendar' ? 'text-emerald-400' : ''} /> Rotação de Elenco</button>
+          
           <button onClick={() => changeTab('rivals')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'rivals' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}><Target size={18} className={activeTab === 'rivals' ? 'text-red-400' : ''} /> Dossiê de Rivais</button>
           <button onClick={() => changeTab('simulator')} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm transition-colors ${activeTab === 'simulator' ? 'bg-slate-800 text-white font-bold shadow-sm' : 'hover:bg-slate-800/50 text-slate-400 font-medium'}`}><Dices size={18} className={activeTab === 'simulator' ? 'text-purple-400' : ''} /> Simulador Pré-Match</button>
         </div>

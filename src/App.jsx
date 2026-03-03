@@ -13,15 +13,17 @@ import ChatPage from "./pages/ChatPage";
 import TeamPage from "./pages/TeamPage";
 import LoginPage from "./pages/LoginPage";
 import RivalsPage from "./pages/RivalsPage";
-import SimulatorPage from "./pages/SimulatorPage"; // IMPORTAÇÃO DA NOVA PÁGINA
+import SimulatorPage from "./pages/SimulatorPage";
+import CalendarPage from "./pages/CalendarPage"; // IMPORTAÇÃO DA NOVA PÁGINA
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("chat"); // Pode ser "chat", "team", "rivals" ou "simulator"
+  
+  // A aba inicial continua sendo o chat
+  const [activeTab, setActiveTab] = useState("chat"); 
 
-  // A lista de times agora começa vazia e será preenchida pelo Firebase
   const [teams, setTeams] = useState([]);
   const [activeTeamId, setActiveTeamId] = useState(null);
   
@@ -51,7 +53,6 @@ export default function App() {
   // ==========================================
   // 2. SINCRONIZAÇÃO DA SIDEBAR COM O FIREBASE
   // ==========================================
-  // Busca a lista de times do usuário quando ele faz login
   useEffect(() => {
     if (!user || !db) {
       setTeams([]);
@@ -66,9 +67,8 @@ export default function App() {
         if (docSnap.exists() && docSnap.data().teams?.length > 0) {
           const loadedTeams = docSnap.data().teams;
           setTeams(loadedTeams);
-          setActiveTeamId(loadedTeams[0].id); // Seleciona o primeiro time por padrão
+          setActiveTeamId(loadedTeams[0].id);
         } else {
-          // Conta nova: Cria o time padrão de boas-vindas direto na nuvem
           const defaultTeam = [{ id: `time-inicial-${Date.now()}`, name: "Meu Primeiro Time" }];
           setTeams(defaultTeam);
           setActiveTeamId(defaultTeam[0].id);
@@ -83,10 +83,9 @@ export default function App() {
     fetchUserTeams();
   }, [user]);
 
-  // Salva automaticamente a lista de times na nuvem sempre que você criar/excluir/renomear um time
+  // Salva lista de times na nuvem
   useEffect(() => {
     if (!user || !db || teams.length === 0) return;
-    
     const saveTeamsToCloud = async () => {
       try {
         await setDoc(doc(db, "users", user.uid, "settings", "teamList"), { teams });
@@ -94,7 +93,6 @@ export default function App() {
         console.error("Erro ao salvar lista de times:", error);
       }
     };
-    
     saveTeamsToCloud();
   }, [teams, user]);
 
@@ -128,7 +126,6 @@ export default function App() {
   const activeTeamName = teams.find((t) => t.id === activeTeamId)?.name || "Carregando...";
 
   const handleLogout = async () => {
-    // Limpa os dados visuais antes de deslogar para evitar vazamento visual
     setTeams([]);
     setActiveTeamId(null);
     await signOut(auth);
@@ -156,7 +153,6 @@ export default function App() {
 
   if (!user) return <LoginPage />;
 
-  // Impede a renderização principal enquanto o Firebase não carrega os times da conta
   if (teams.length === 0 || !activeTeamId) return (
     <div className="h-screen bg-slate-950 flex items-center justify-center">
       <Loader2 className="animate-spin text-blue-500" size={40} />
@@ -197,7 +193,11 @@ export default function App() {
             <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
               {activeTeamName} 
               <span className="bg-slate-800 text-blue-400 text-[10px] px-2 py-1 rounded-md uppercase tracking-wider hidden sm:inline-block">
-                {activeTab === "chat" ? "Táticas" : activeTab === "team" ? "Elenco" : activeTab === "rivals" ? "Dossiê" : "Simulador"}
+                {activeTab === "chat" ? "Táticas" : 
+                 activeTab === "team" ? "Elenco" : 
+                 activeTab === "rivals" ? "Dossiê" : 
+                 activeTab === "simulator" ? "Simulador" : 
+                 activeTab === "calendar" ? "Rotação" : "Painel"}
               </span>
             </h2>
           </div>
@@ -208,7 +208,10 @@ export default function App() {
           </button>
         </header>
 
+        {/* ========================================== */}
         {/* LÓGICA DE ROTEAMENTO DAS ABAS */}
+        {/* ========================================== */}
+        
         {activeTab === "chat" && (
           <ChatPage
             activeTeamId={activeTeamId}
@@ -243,6 +246,18 @@ export default function App() {
         {activeTab === "simulator" && (
           <div className="flex-1 overflow-y-auto">
             <SimulatorPage
+              activeTeamId={activeTeamId}
+              activeTeamName={activeTeamName}
+              teamData={teamData}
+              user={user}
+            />
+          </div>
+        )}
+
+        {/* Renderização Condicional da Nova Página de Calendário */}
+        {activeTab === "calendar" && (
+          <div className="flex-1 overflow-y-auto">
+            <CalendarPage
               activeTeamId={activeTeamId}
               activeTeamName={activeTeamName}
               teamData={teamData}
