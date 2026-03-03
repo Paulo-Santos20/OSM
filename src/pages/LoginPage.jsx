@@ -1,12 +1,6 @@
 // src/pages/LoginPage.jsx
 import React, { useState, useEffect } from 'react';
-import { 
-  auth, 
-  googleProvider, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword 
-} from '../config/firebase';
-// IMPORTANTE: Adicionamos signInWithRedirect e getRedirectResult
+import { auth, googleProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword } from '../config/firebase';
 import { signInWithRedirect, getRedirectResult } from 'firebase/auth'; 
 import { Bot, Mail, Lock, Chrome, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -18,20 +12,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isRedirectLoading, setIsRedirectLoading] = useState(true);
 
-  // ==========================================
-  // CAPTURA DO RETORNO DO GOOGLE (MOBILE FIX)
-  // ==========================================
   useEffect(() => {
     const checkRedirect = async () => {
       try {
-        // Se o usuário acabou de voltar da tela do Google, o Firebase finaliza o login aqui.
         const result = await getRedirectResult(auth);
-        if (result) {
-          toast.success("Bem-vindo via Google!");
-        }
+        if (result) toast.success("Bem-vindo via Google!");
       } catch (error) {
-        console.error("Erro no Redirect do Google:", error);
-        toast.error("O login com o Google foi cancelado ou falhou.");
+        toast.error("Falha no login com Google.");
       } finally {
         setIsRedirectLoading(false);
       }
@@ -42,9 +29,7 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
-      // Usando REDIRECT ao invés de POPUP para garantir compatibilidade com PWA e Celular
       await signInWithRedirect(auth, googleProvider);
-      // O código para aqui, pois a página será redirecionada.
     } catch (error) {
       setLoading(false);
       toast.error("Falha ao iniciar o login com o Google.");
@@ -63,20 +48,18 @@ export default function LoginPage() {
         toast.success("Login realizado!");
       }
     } catch (error) {
-      console.error(error);
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
         toast.error("E-mail ou senha incorretos.");
       } else if (error.code === 'auth/email-already-in-use') {
         toast.error("Este e-mail já está em uso.");
       } else {
-        toast.error("Erro ao autenticar. Verifique seus dados.");
+        toast.error("Erro ao autenticar.");
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // Enquanto verifica se está voltando do Google, mostra a tela de carregamento para não piscar
   if (isRedirectLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
@@ -88,13 +71,13 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 selection:bg-blue-500/30">
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl animate-fade-in">
+      <div className="max-w-md w-full bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl animate-fade-in">
         <div className="flex flex-col items-center mb-8">
           <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-4 rounded-2xl mb-4 shadow-lg shadow-blue-900/30">
             <Bot size={40} className="text-white" />
           </div>
-          <h1 className="text-2xl font-black text-slate-100 tracking-tight">Analista Tático OSM</h1>
-          <p className="text-slate-400 text-sm mt-1 font-medium">Acesse sua prancheta de elite</p>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-100 tracking-tight text-center">Analista Tático OSM</h1>
+          <p className="text-slate-400 text-xs sm:text-sm mt-1 font-medium">Acesse sua prancheta de elite</p>
         </div>
 
         <form onSubmit={handleEmailAuth} className="space-y-4">
@@ -104,7 +87,8 @@ export default function LoginPage() {
               type="email" 
               placeholder="E-mail de acesso" 
               required
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3.5 pl-12 pr-4 text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+              /* TEXT-BASE É OBRIGATÓRIO AQUI PARA O IPHONE NÃO DAR ZOOM */
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3.5 pl-12 pr-4 text-base text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
               value={email} 
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -115,7 +99,8 @@ export default function LoginPage() {
               type="password" 
               placeholder="Sua senha secreta" 
               required
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3.5 pl-12 pr-4 text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+              /* TEXT-BASE É OBRIGATÓRIO AQUI PARA O IPHONE NÃO DAR ZOOM */
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl py-3.5 pl-12 pr-4 text-base text-slate-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
               value={password} 
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -133,7 +118,7 @@ export default function LoginPage() {
         <div className="mt-8">
           <div className="relative flex items-center justify-center mb-6">
             <div className="border-t border-slate-800 w-full"></div>
-            <span className="bg-slate-900 px-4 text-[11px] font-bold text-slate-500 uppercase tracking-widest absolute">Ou acesse rápido via</span>
+            <span className="bg-slate-900 px-4 text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-widest absolute">Ou acesse rápido via</span>
           </div>
 
           <button 
@@ -145,15 +130,11 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <p className="text-center text-slate-400 text-sm mt-8 font-medium">
+        <p className="text-center text-slate-400 text-xs sm:text-sm mt-8 font-medium">
           {isRegistering ? 'Já possui uma prancheta?' : 'Ainda não é treinador?'}
           <button 
             type="button"
-            onClick={() => {
-              setIsRegistering(!isRegistering);
-              // Limpa os campos ao trocar entre login e registro
-              setPassword('');
-            }}
+            onClick={() => { setIsRegistering(!isRegistering); setPassword(''); }}
             className="text-blue-400 font-bold ml-1.5 hover:text-blue-300 hover:underline transition-colors outline-none"
           >
             {isRegistering ? 'Fazer Login' : 'Cadastre-se grátis'}

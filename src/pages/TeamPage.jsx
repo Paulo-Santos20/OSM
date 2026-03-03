@@ -4,7 +4,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { 
   Camera, Loader2, Save, AlertTriangle, UserPlus, Zap, Trash2, Plus, 
   Battery, Ban, Award, Target, Flag, CornerUpLeft, DollarSign, Copy, CheckCircle2, 
-  Search, TrendingUp, Dumbbell, Flame, RefreshCcw, ShieldAlert
+  Search, TrendingUp, Dumbbell, Flame, RefreshCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../config/firebase';
@@ -244,7 +244,7 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
   const extractWithBackupAI = async (base64Data, originalPrompt) => {
     const groqApiKey = import.meta.env.VITE_GROQ_API_KEY; 
     if (!groqApiKey) throw new Error("Chave VITE_GROQ_API_KEY não configurada.");
-    const aggressivePrompt = `${originalPrompt}\n\nIMPORTANTE: Extraia TODOS os jogadores. Inclua a idade ("age") e obrigatoriamente a energia ("energy") estimando pela cor/tamanho da barra 'F'.`;
+    const aggressivePrompt = `${originalPrompt}\n\nIMPORTANTE: Extraia TODOS os jogadores. Inclua a idade ("age") e obrigatoriamente a energia ("energy") estimando pela cor/tamanho da barra 'F'. Cartões amarelos não geram indisponibilidade.`;
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -268,14 +268,14 @@ export default function TeamPage({ activeTeamId, activeTeamName, teamData, setTe
 
     try {
       const base64Data = await compressImageToBase64(file);
-      // PROMPT ATUALIZADO: Agora pede explicitamente para ler a barra F e identificar a energia pela cor
+      // PROMPT ATUALIZADO para ler corretamente a barra 'F' e desconsiderar cartão amarelo
       const prompt = `Você é um extrator de dados estrito. Retorne ABSOLUTAMENTE APENAS UM JSON VÁLIDO.
-REGRA DA ENERGIA (FADIGA): Observe a barra superior 'F' (Fitness) de CADA jogador.
-- Se a barra 'F' for Verde = "energy": 100
-- Se a barra 'F' for Amarela = "energy": 75
-- Se a barra 'F' for Laranja = "energy": 50
-- Se a barra 'F' for Vermelha = "energy": 25
-REGRA DE SUSPENSÃO: Cartão amarelo NÃO suspende ("unavailable": false). Apenas cruz médica ou cartão vermelho ("unavailable": true).
+REGRA DA ENERGIA (FADIGA): Observe a barra superior 'F' (Fitness) de CADA jogador. A barra F determina o cansaço.
+- Se a barra 'F' for Verde inteira = "energy": 100
+- Se a barra 'F' for Amarela/Verde-claro (3/4 cheia) = "energy": 75
+- Se a barra 'F' for Laranja (metade) = "energy": 50
+- Se a barra 'F' for Vermelha (quase vazia) = "energy": 25
+REGRA DE SUSPENSÃO: Cartão amarelo na imagem NÃO suspende o jogador ("unavailable": false). Apenas marque true se houver cruz médica ou cartão vermelho.
 Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"att":95,"def":37,"ovr":95,"energy":75,"unavailable":false}]}`;
 
       let rawText = "";
@@ -419,9 +419,6 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
   const currentFormationStr = teamData.formation || "4-3-3B";
   const pitchSlots = FORMATIONS_MAP[currentFormationStr] || FORMATIONS_MAP["4-3-3B"];
 
-  // ==========================================
-  // ALGORITMOS NATIVOS (ESPECIALISTAS, SCOUT, TREINO E ROTAÇÃO)
-  // ==========================================
   const getSpecialists = useMemo(() => {
     if (starters.length === 0) return { captain: null, penalties: null, freeKicks: null, corners: null };
     const attackers = starters.filter(p => getMacroSector(p.pos) === 'ATT');
@@ -519,7 +516,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
     const criticalSectors = stats.filter(s => s.status === 'critical');
     const warningSectors = stats.filter(s => s.status === 'warning');
     
-    let message = "Elenco perfeito! Você tem peças suficientes para rotacionar o time sem perder rendimento.";
+    let message = "Elenco perfeito! Peças suficientes para rotacionar sem perder rendimento.";
     let boxColor = "border-emerald-900/50 bg-emerald-950/20";
     let iconColor = "text-emerald-400";
 
@@ -527,11 +524,11 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
       boxColor = "border-red-900/50 bg-red-950/20";
       iconColor = "text-red-400";
       const s = criticalSectors[0];
-      message = `Risco de Colapso Físico: Você tem apenas ${s.has} opções para o setor ${s.sector}. Para jogar no ${currentFormationStr} com rotação saudável, vá ao mercado buscar +${Math.abs(s.diff)} jogadores imediatamente!`;
+      message = `Colapso Físico: Você tem apenas ${s.has} opções para ${s.sector}. Para rodar no ${currentFormationStr}, busque +${Math.abs(s.diff)} jogadores!`;
     } else if (warningSectors.length > 0) {
       boxColor = "border-yellow-900/50 bg-yellow-950/20";
       iconColor = "text-yellow-400";
-      message = `Atenção na Rotação: Faltam opções de banco no setor ${warningSectors[0].sector}. Se houver uma lesão, você ficará sem fôlego na Copa.`;
+      message = `Atenção: Faltam reservas no setor ${warningSectors[0].sector}. Uma lesão e você ficará sem fôlego.`;
     }
 
     return { stats, message, boxColor, iconColor };
@@ -577,7 +574,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
             <button onClick={() => setScoutModalOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">✕</button>
             <div className="flex items-center gap-3 mb-6">
               <div className="bg-blue-600 p-3 rounded-xl shadow-lg shadow-blue-900/30"><Search size={24} className="text-white" /></div>
-              <div><h3 className="text-xl font-bold text-slate-100">Diretor de Olheiros</h3><span className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Análise Automática do Elenco</span></div>
+              <div><h3 className="text-xl font-bold text-slate-100">Diretor de Olheiros</h3><span className="text-xs text-blue-400 font-semibold uppercase tracking-wider">Análise Automática</span></div>
             </div>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-4">
               <p className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-2 flex items-center gap-1"><AlertTriangle size={14} className="text-yellow-500"/> Elo mais fraco identificado</p>
@@ -587,7 +584,7 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
               </div>
             </div>
             <div className="bg-blue-950/20 border border-blue-900/50 rounded-xl p-4">
-              <p className="text-xs text-blue-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-1"><TrendingUp size={14}/> Parâmetros Sugeridos para o Jogo</p>
+              <p className="text-xs text-blue-400 uppercase tracking-wider font-bold mb-3 flex items-center gap-1"><TrendingUp size={14}/> Parâmetros Sugeridos</p>
               <ul className="space-y-2 text-sm text-slate-300">
                 <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Posição:</span> <strong className="text-slate-100">{scoutRecommendation.scoutPos}</strong></li>
                 <li className="flex justify-between border-b border-blue-900/30 pb-1"><span className="text-slate-500">Estilo:</span> <strong className="text-slate-100">{scoutRecommendation.scoutStyle}</strong></li>
@@ -648,16 +645,16 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                 return (
                   <div key={slot.id} onClick={() => playerInSlot ? handlePlayerClick(playerInSlot) : handleEmptySlotClick(slot.id)} className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center cursor-pointer transition-transform hover:scale-110 z-10" style={{ top: slot.top, left: slot.left }}>
                     {playerInSlot ? (
-                      <div className={`w-11 h-11 md:w-14 md:h-14 rounded-full flex items-center justify-center font-black text-sm md:text-base shadow-lg ${isSelected ? 'bg-yellow-400 text-slate-900 ring-4 ring-yellow-200' : (hasProblem ? 'bg-red-600 text-white border-2 border-red-300 animate-pulse' : 'bg-slate-900 text-white border-2 border-slate-600')}`}>
+                      <div className={`w-10 h-10 md:w-14 md:h-14 rounded-full flex items-center justify-center font-black text-sm md:text-base shadow-lg ${isSelected ? 'bg-yellow-400 text-slate-900 ring-4 ring-yellow-200' : (hasProblem ? 'bg-red-600 text-white border-2 border-red-300 animate-pulse' : 'bg-slate-900 text-white border-2 border-slate-600')}`}>
                         {playerInSlot.ovr}
                       </div>
                     ) : (
-                      <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-dashed flex items-center justify-center text-xs font-bold transition-colors ${selectedPlayer ? 'border-yellow-400 bg-yellow-400/20 text-yellow-400 animate-pulse' : 'border-emerald-400/50 bg-emerald-900/50 text-emerald-400/50'}`}>
+                      <div className={`w-8 h-8 md:w-12 md:h-12 rounded-full border-2 border-dashed flex items-center justify-center text-[10px] md:text-xs font-bold transition-colors ${selectedPlayer ? 'border-yellow-400 bg-yellow-400/20 text-yellow-400 animate-pulse' : 'border-emerald-400/50 bg-emerald-900/50 text-emerald-400/50'}`}>
                         {slot.label}
                       </div>
                     )}
                     {playerInSlot && (
-                      <span className="mt-1 bg-black/80 px-2 py-0.5 rounded text-[10px] md:text-xs font-semibold whitespace-nowrap text-slate-200 border border-slate-700">
+                      <span className="mt-1 bg-black/80 px-2 py-0.5 rounded text-[9px] md:text-xs font-semibold whitespace-nowrap text-slate-200 border border-slate-700">
                         {playerInSlot.name}
                       </span>
                     )}
@@ -700,13 +697,12 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
         {/* COLUNA DIREITA: GESTÃO (ESPECIALISTAS, TREINO, SCOUT E ROTAÇÃO) */}
         <div className="xl:w-[50%] flex flex-col gap-6">
           
-          {/* PLANEJADOR DE ROTAÇÃO E PROFUNDIDADE */}
           {depthAnalysis && (
             <div className={`bg-slate-800 rounded-2xl shadow-xl border p-5 animate-fade-in ${depthAnalysis.boxColor}`}>
               <h4 className={`font-bold mb-3 flex items-center gap-2 text-sm ${depthAnalysis.iconColor}`}>
                 <RefreshCcw size={18}/> Planejador de Rotação (Tática Atual)
               </h4>
-              <div className="flex flex-col sm:flex-row gap-4 items-center">
+              <div className="flex flex-col lg:flex-row gap-4 items-center">
                 <div className="flex-1 w-full grid grid-cols-4 gap-2">
                   {depthAnalysis.stats.map(stat => (
                     <div key={stat.sector} className={`p-2 rounded-lg border flex flex-col items-center justify-center bg-slate-900/50 ${stat.status === 'critical' ? 'border-red-500/50' : stat.status === 'warning' ? 'border-yellow-500/50' : 'border-emerald-500/50'}`}>
@@ -716,15 +712,14 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                   ))}
                 </div>
                 <div className="flex-1 text-sm bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 w-full shadow-inner">
-                  <p className="text-slate-300 leading-relaxed font-medium">{depthAnalysis.message}</p>
+                  <p className="text-slate-300 leading-relaxed font-medium text-center lg:text-left">{depthAnalysis.message}</p>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            
-            {/* CARD: ASSISTENTE DE TREINO DIÁRIO */}
+          {/* PAINEL GRID: TREINO / SCOUT E ESPECIALISTAS */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4">
               <h4 className="font-bold text-orange-400 mb-3 flex items-center gap-2 text-sm">
                 <Dumbbell size={18}/> Foco de Treino Diário
@@ -758,7 +753,6 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
               </div>
             </div>
 
-            {/* CARD: SCOUT E ESPECIALISTAS */}
             <div className="flex flex-col gap-4">
               <div className="bg-gradient-to-br from-blue-900/40 to-slate-800 rounded-2xl shadow-xl border border-blue-800/50 p-4 flex flex-col items-center text-center justify-center flex-1">
                 <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center mb-2 shadow-lg shadow-blue-900/50">
@@ -783,7 +777,6 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                 </div>
               </div>
             </div>
-
           </div>
 
           <div className="flex justify-between items-center mt-2">
@@ -793,14 +786,15 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
             </button>
           </div>
           
-          {/* TABELA DE JOGADORES */}
+          {/* TABELA DE JOGADORES RESPONSIVA */}
           <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-4 overflow-hidden flex flex-col h-[500px]">
             <div className="flex justify-between items-center bg-slate-900 p-3 rounded-xl border border-slate-700 mb-4">
               <span className="text-slate-400 text-sm font-bold">OVR Titulares:</span>
               <span className="text-green-400 text-2xl font-black">{teamData.teamOvr || 0}</span>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
+            {/* TABELA DE DESKTOP (Escondida no Mobile) */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2 hidden md:block">
               <div className="grid grid-cols-12 gap-1 px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 bg-slate-800 py-2 z-10 text-center">
                 <div className="col-span-3 text-left pl-1">Nome</div>
                 <div className="col-span-1">Pos</div>
@@ -819,19 +813,58 @@ Formato: {"formation":"4-3-3B","players":[{"name":"GORDON","pos":"LW","age":22,"
                   <input type="number" value={player.ovr} onChange={(e) => updatePlayerStat(idx, 'ovr', e.target.value)} className="col-span-2 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-bold text-green-400 outline-none w-full" />
                   <input type="number" value={player.age || 25} onChange={(e) => updatePlayerStat(idx, 'age', e.target.value)} className="col-span-1 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-medium text-purple-300 outline-none w-full px-0" title="Idade" />
                   <input type="number" value={player.energy ?? 100} onChange={(e) => updatePlayerStat(idx, 'energy', e.target.value)} className={`col-span-2 bg-slate-950 border rounded text-center text-[11px] py-1.5 font-bold outline-none w-full ${player.energy < 75 ? 'text-yellow-500 border-yellow-700/50' : 'text-slate-300 border-slate-800'}`} min="0" max="100" />
-                  
-                  <button onClick={() => updatePlayerStat(idx, 'unavailable', !player.unavailable)} className={`col-span-1 flex justify-center py-1.5 rounded transition-colors border ${player.unavailable ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-red-400'}`}>
-                    <Ban size={12} />
-                  </button>
-                  <button onClick={() => handleOpenMarket(player)} className="col-span-1 flex justify-center py-1.5 rounded transition-colors border bg-slate-950 border-slate-800 text-emerald-500 hover:bg-emerald-900/30 hover:border-emerald-500/50" title="Revenda no Mercado">
-                    <DollarSign size={14} />
-                  </button>
-                  <button onClick={() => handleRemovePlayer(player.id)} className="col-span-1 flex justify-center text-slate-500 hover:text-red-400 transition-colors">
-                    <Trash2 size={14} />
-                  </button>
+                  <button onClick={() => updatePlayerStat(idx, 'unavailable', !player.unavailable)} className={`col-span-1 flex justify-center py-1.5 rounded transition-colors border ${player.unavailable ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-red-400'}`}><Ban size={12} /></button>
+                  <button onClick={() => handleOpenMarket(player)} className="col-span-1 flex justify-center py-1.5 rounded transition-colors border bg-slate-950 border-slate-800 text-emerald-500 hover:bg-emerald-900/30 hover:border-emerald-500/50" title="Revenda no Mercado"><DollarSign size={14} /></button>
+                  <button onClick={() => handleRemovePlayer(player.id)} className="col-span-1 flex justify-center text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>
+
+            {/* LISTA PARA MOBILE (Cartões empilhados) */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-3 md:hidden">
+              {safePlayers.map((player, idx) => (
+                <div key={player.id || idx} className={`border rounded-xl p-3 flex flex-col gap-3 shadow-sm transition-colors ${player.unavailable ? 'bg-red-950/20 border-red-900/50' : (player.energy < 75 ? 'bg-yellow-950/20 border-yellow-900/50' : 'bg-slate-900 border-slate-700')}`}>
+                  
+                  {/* Topo do Card Mobile: Nome, Posição, OVR */}
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={player.pos || ''} onChange={(e) => updatePlayerStat(idx, 'pos', e.target.value)} className="w-12 bg-slate-950 border border-slate-800 rounded text-center text-xs py-1.5 font-bold text-blue-400 outline-none uppercase" maxLength={3} />
+                    <input type="text" value={player.name} onChange={(e) => updatePlayerStat(idx, 'name', e.target.value)} className="flex-1 bg-transparent text-sm font-bold text-slate-200 outline-none truncate border-b border-slate-800 focus:border-blue-500 pb-1" />
+                    <div className="flex flex-col items-center">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">OVR</span>
+                      <input type="number" value={player.ovr} onChange={(e) => updatePlayerStat(idx, 'ovr', e.target.value)} className="w-14 bg-slate-950 border border-slate-800 rounded text-center text-sm py-1 font-black text-green-400 outline-none" />
+                    </div>
+                  </div>
+
+                  {/* Base do Card Mobile: Idade, Energia e Ações */}
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-800/50 pt-2">
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 px-2 py-1 rounded">
+                        <span className="text-[10px] font-bold text-purple-400">Idade</span>
+                        <input type="number" value={player.age || 25} onChange={(e) => updatePlayerStat(idx, 'age', e.target.value)} className="w-8 bg-transparent text-center text-xs font-bold text-slate-200 outline-none" />
+                      </div>
+                      <div className={`flex items-center gap-1 bg-slate-950 border px-2 py-1 rounded ${player.energy < 75 ? 'border-yellow-700/50' : 'border-slate-800'}`}>
+                        <Battery size={12} className={player.energy < 75 ? 'text-yellow-500' : 'text-slate-500'}/>
+                        <input type="number" value={player.energy ?? 100} onChange={(e) => updatePlayerStat(idx, 'energy', e.target.value)} className={`w-10 bg-transparent text-center text-xs font-bold outline-none ${player.energy < 75 ? 'text-yellow-500' : 'text-slate-200'}`} min="0" max="100" />
+                        <span className="text-[10px] text-slate-500">%</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => updatePlayerStat(idx, 'unavailable', !player.unavailable)} className={`p-1.5 rounded border transition-colors ${player.unavailable ? 'bg-red-600 border-red-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-red-400'}`}>
+                        <Ban size={14} />
+                      </button>
+                      <button onClick={() => handleOpenMarket(player)} className="p-1.5 rounded border bg-slate-950 border-slate-800 text-emerald-500 hover:bg-emerald-900/30 hover:border-emerald-500/50">
+                        <DollarSign size={14} />
+                      </button>
+                      <button onClick={() => handleRemovePlayer(player.id)} className="p-1.5 text-slate-500 hover:text-red-400 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
           </div>
         </div>
 
